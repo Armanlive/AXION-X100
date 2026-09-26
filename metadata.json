@@ -1,0 +1,7 @@
+{
+  "name": "AXION-X100 — Local AI Orchestration & Agent Workspace",
+  "description": "Windows desktop & local AI workspace for engineering teams. Features voice-first coding, Hinglish normalizer, 17 specialist agents, zero-cost router, diff review gates, and 1-click rollback.",
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
