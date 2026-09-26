@@ -28,7 +28,8 @@ import {
   Folder,
   ShieldCheck,
   Code,
-  Layers
+  Layers,
+  Lock
 } from 'lucide-react';
 
 export const WorkspaceChat: React.FC = () => {
@@ -46,6 +47,8 @@ export const WorkspaceChat: React.FC = () => {
     agents,
     isManualMode,
     setIsManualMode,
+    isBossLocked,
+    setIsBossLocked,
     models,
     activeModelId,
     setActiveModelId,
@@ -655,181 +658,187 @@ export const WorkspaceChat: React.FC = () => {
               </button>
             </div>
 
-            {/* Composer Footer: Compact [ 👑 Boss Agent ] & [ Model/Route ▼ ] */}
+            {/* Composer Footer: Nextron-Style Boss Agent Interaction */}
             <div className="pt-2 mt-2 border-t border-zinc-800/50 flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-2">
-                {/* COMPACT BOSS AGENT / SPECIALIST SELECTOR BUTTON */}
+                {/* BOSS AGENT CONTROL BUTTON */}
                 <div className="relative" ref={agentMenuRef}>
-                  <button
-                    onClick={() => setIsAgentMenuOpen(!isAgentMenuOpen)}
-                    className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-850 hover:bg-zinc-800 text-zinc-200 border border-zinc-750/70 text-[11px] font-medium transition shadow-sm"
-                    title="Select Boss Agent (Auto) or Manual Specialist"
-                  >
-                    {!isManualMode ? (
-                      <>
-                        <span>👑</span>
-                        <span>Boss Agent (Auto)</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>{activeSpecialist?.avatar || '🤖'}</span>
-                        <span className="truncate max-w-[120px]">{activeSpecialist?.name}</span>
-                      </>
-                    )}
-                    <ChevronDown className="w-3 h-3 text-zinc-500" />
-                  </button>
+                  {isBossLocked ? (
+                    /* LOCKED AUTONOMOUS MODE (DEFAULT) */
+                    <button
+                      onClick={() => setIsAgentMenuOpen(!isAgentMenuOpen)}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-850 hover:bg-zinc-800 text-zinc-100 border border-zinc-750 text-[11px] font-medium transition shadow-sm"
+                      title="Boss Agent Autonomous Orchestration is Active (Click to configure)"
+                    >
+                      <span className="text-xs">👑</span>
+                      <span>Boss Agent</span>
+                      <Check className="w-3 h-3 text-emerald-400 stroke-[2.5]" />
+                      <Lock className="w-2.5 h-2.5 text-zinc-400" />
+                    </button>
+                  ) : (
+                    /* UNLOCKED MANUAL CONTROL */
+                    <button
+                      onClick={() => setIsAgentMenuOpen(!isAgentMenuOpen)}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-950/40 hover:bg-amber-900/40 text-amber-300 border border-amber-600/40 text-[11px] font-medium transition shadow-sm"
+                      title="Manual Mode Unlocked (Click to return to Boss Auto)"
+                    >
+                      <span className="text-xs">👑</span>
+                      <span>Boss Agent</span>
+                      <span className="text-[10px]">🔓</span>
+                    </button>
+                  )}
 
-                  {/* Agent Popover */}
+                  {/* POPOVER FOR BOSS AGENT */}
                   {isAgentMenuOpen && (
-                    <div className="absolute bottom-full left-0 mb-2 w-80 bg-[#141417] border border-zinc-800 rounded-xl shadow-2xl py-2 z-50 animate-in fade-in duration-100 flex flex-col max-h-[420px]">
-                      <div className="px-3 pb-2 border-b border-zinc-800 space-y-2">
-                        <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider font-semibold">
-                          SELECT AGENT MODE
-                        </div>
-                        {/* Search Bar */}
-                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-900 border border-zinc-800">
-                          <Search className="w-3 h-3 text-zinc-500" />
-                          <input
-                            type="text"
-                            value={agentSearch}
-                            onChange={(e) => setAgentSearch(e.target.value)}
-                            placeholder="Search 100 specialists..."
-                            className="w-full bg-transparent text-xs text-white placeholder-zinc-500 focus:outline-none"
-                            autoFocus
-                          />
-                        </div>
-                      </div>
-
-                      {/* Boss Agent Option */}
-                      <div className="p-1.5 border-b border-zinc-800/80">
-                        <button
-                          onClick={handleSelectBossAgent}
-                          className={`w-full flex items-center justify-between p-2 rounded-lg text-left transition ${
-                            !isManualMode
-                              ? 'bg-zinc-800 text-white font-medium'
-                              : 'hover:bg-zinc-850 text-zinc-300'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm">👑</span>
+                    <div className="absolute bottom-full left-0 mb-2 w-72 bg-[#141417] border border-zinc-800 rounded-xl shadow-2xl p-3 z-50 animate-in fade-in duration-100">
+                      {isBossLocked ? (
+                        /* Popover when Locked */
+                        <div className="space-y-3">
+                          <div className="flex items-center gap-2 pb-2 border-b border-zinc-800">
+                            <span className="text-base">👑</span>
                             <div>
-                              <div className="font-semibold text-xs text-zinc-100">
-                                Boss Agent (Automatic)
-                              </div>
-                              <div className="text-[10px] text-zinc-400">
-                                Autonomous task decomposition & specialist delegation
-                              </div>
+                              <div className="text-xs font-bold text-white tracking-tight">BOSS AGENT</div>
+                              <div className="text-[10px] text-zinc-400">Automatic orchestration is active.</div>
                             </div>
                           </div>
-                          {!isManualMode && <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
-                        </button>
-                      </div>
 
-                      {/* Category Filter Pills */}
-                      <div className="px-2 py-1.5 flex gap-1 overflow-x-auto border-b border-zinc-800/80 shrink-0">
-                        {categories.map((cat) => (
-                          <button
-                            key={cat}
-                            onClick={() => setAgentCategoryFilter(cat)}
-                            className={`px-2 py-0.5 rounded text-[10px] font-mono shrink-0 transition ${
-                              agentCategoryFilter === cat
-                                ? 'bg-zinc-700 text-white'
-                                : 'text-zinc-500 hover:text-zinc-300'
-                            }`}
-                          >
-                            {cat}
-                          </button>
-                        ))}
-                      </div>
+                          <div className="space-y-1.5 py-1 text-[11px] text-zinc-300 font-sans">
+                            <div className="flex items-center gap-2 text-emerald-400">
+                              <Check className="w-3.5 h-3.5 shrink-0" />
+                              <span>Automatically choose specialists</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-emerald-400">
+                              <Check className="w-3.5 h-3.5 shrink-0" />
+                              <span>Automatically choose models</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-emerald-400">
+                              <Check className="w-3.5 h-3.5 shrink-0" />
+                              <span>Automatic free-tier failover</span>
+                            </div>
+                            <div className="flex items-center gap-2 text-emerald-400">
+                              <Check className="w-3.5 h-3.5 shrink-0" />
+                              <span>Context-aware routing</span>
+                            </div>
+                          </div>
 
-                      {/* Specialists List */}
-                      <div className="overflow-y-auto p-1.5 space-y-0.5 flex-1">
-                        <div className="px-2 py-1 text-[10px] font-mono text-zinc-500 uppercase tracking-wider">
-                          Specialists ({filteredAgents.length})
-                        </div>
-                        {filteredAgents.map((agent) => {
-                          const isSelected = isManualMode && selectedAgentId === agent.id;
-                          return (
+                          <div className="pt-2 border-t border-zinc-800">
                             <button
-                              key={agent.id}
-                              onClick={() => handleSelectSpecialist(agent.id)}
-                              className={`w-full flex items-center justify-between p-2 rounded-lg text-left transition ${
-                                isSelected
-                                  ? 'bg-zinc-800 text-white font-medium'
-                                  : 'hover:bg-zinc-850/70 text-zinc-300'
-                              }`}
-                            >
-                              <div className="flex items-center gap-2 min-w-0">
-                                <span className="text-sm shrink-0">{agent.avatar}</span>
-                                <div className="truncate">
-                                  <div className="text-xs text-zinc-200 truncate font-medium">
-                                    {agent.name}
-                                  </div>
-                                  <div className="text-[10px] text-zinc-500 truncate">
-                                    {agent.description}
-                                  </div>
-                                </div>
-                              </div>
-                              {isSelected && <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 ml-2" />}
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* COMPACT MODEL / ROUTE SELECTOR BUTTON */}
-                <div className="relative" ref={modelMenuRef}>
-                  <button
-                    onClick={() => setIsModelMenuOpen(!isModelMenuOpen)}
-                    className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-zinc-850 text-zinc-400 hover:text-zinc-200 text-[11px] font-mono transition border border-transparent hover:border-zinc-800"
-                    title="Model Router: Zero-Cost Policy Active"
-                  >
-                    <Zap className="w-3 h-3 text-emerald-400" />
-                    <span className="truncate max-w-[130px]">{activeModel?.name || 'Auto Route'}</span>
-                    <span className="text-[10px] text-emerald-400">Free</span>
-                    <ChevronDown className="w-3 h-3 text-zinc-500" />
-                  </button>
-
-                  {/* Model Popover */}
-                  {isModelMenuOpen && (
-                    <div className="absolute bottom-full left-0 mb-2 w-72 bg-[#141417] border border-zinc-800 rounded-xl shadow-2xl p-2 z-50 animate-in fade-in duration-100">
-                      <div className="px-2 py-1 border-b border-zinc-800 flex items-center justify-between text-[10px] font-mono text-zinc-500 uppercase">
-                        <span>Zero-Cost Model Route</span>
-                        <span className="text-emerald-400">Guaranteed $0.00</span>
-                      </div>
-                      <div className="py-1 space-y-0.5">
-                        {models.map((m) => {
-                          const isSelected = m.id === activeModelId;
-                          return (
-                            <button
-                              key={m.id}
                               onClick={() => {
-                                setActiveModelId(m.id);
-                                setIsModelMenuOpen(false);
+                                setIsBossLocked(false);
+                                setIsAgentMenuOpen(false);
                               }}
-                              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition text-xs ${
-                                isSelected
-                                  ? 'bg-zinc-800 text-white font-medium'
-                                  : 'text-zinc-400 hover:bg-zinc-850 hover:text-zinc-200'
-                              }`}
+                              className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-amber-300 text-xs font-medium border border-amber-500/30 transition shadow-sm"
                             >
-                              <div>
-                                <div className="font-mono text-xs">{m.name}</div>
-                                <div className="text-[10px] text-zinc-500">{m.provider} • Free Tier</div>
-                              </div>
-                              {isSelected && <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 ml-2" />}
+                              <span>🔓</span>
+                              <span>Unlock Manual Control</span>
                             </button>
-                          );
-                        })}
-                      </div>
-                      <div className="pt-1.5 mt-1 border-t border-zinc-800 text-[10px] text-zinc-500 leading-tight px-1 font-sans">
-                        Paid models remain blocked by default. Configure custom providers in Cloud Brain.
-                      </div>
+                          </div>
+                        </div>
+                      ) : (
+                        /* Popover when Unlocked */
+                        <div className="space-y-3">
+                          <div className="pb-2 border-b border-zinc-800">
+                            <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                              <span>🔓</span>
+                              <span>MANUAL MODE ACTIVE</span>
+                            </div>
+                            <p className="text-[10px] text-zinc-400 mt-1">
+                              Specialist agent and model router selections are unlocked for manual control.
+                            </p>
+                          </div>
+
+                          <button
+                            onClick={() => {
+                              setIsBossLocked(true);
+                              setIsAgentMenuOpen(false);
+                            }}
+                            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-bold shadow-sm transition"
+                          >
+                            <Lock className="w-3.5 h-3.5" />
+                            <span>Return to Boss Auto</span>
+                          </button>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
+
+                {/* WHEN LOCKED: Subtle [ 🔒 Auto Route ] Badge with Tooltip */}
+                {isBossLocked && (
+                  <div
+                    className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-mono text-zinc-400 bg-zinc-900/60 border border-zinc-800/60"
+                    title="AXION selects the best available model automatically."
+                  >
+                    <Lock className="w-2.5 h-2.5 text-zinc-500" />
+                    <span>Auto Route</span>
+                  </div>
+                )}
+
+                {/* WHEN UNLOCKED: Expose Manual Specialist and Model Selectors */}
+                {!isBossLocked && (
+                  <>
+                    {/* MANUAL SPECIALIST SELECTOR */}
+                    <div className="relative">
+                      <button
+                        onClick={() => setIsPlusMenuOpen(false)}
+                        className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-850 hover:bg-zinc-800 text-zinc-200 border border-zinc-750 text-[11px] transition shadow-sm"
+                      >
+                        <span>{activeSpecialist?.avatar || '🤖'}</span>
+                        <span className="truncate max-w-[120px] font-medium">{activeSpecialist?.name}</span>
+                        <ChevronDown className="w-3 h-3 text-zinc-500" />
+                      </button>
+                    </div>
+
+                    {/* MANUAL MODEL SELECTOR */}
+                    <div className="relative" ref={modelMenuRef}>
+                      <button
+                        onClick={() => setIsModelMenuOpen(!isModelMenuOpen)}
+                        className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-850 hover:bg-zinc-800 text-zinc-200 border border-zinc-750 text-[11px] font-mono transition shadow-sm"
+                        title="Model Router (Manual Override)"
+                      >
+                        <Zap className="w-3 h-3 text-emerald-400" />
+                        <span className="truncate max-w-[110px]">{activeModel?.name}</span>
+                        <span className="text-[10px] text-emerald-400">Free</span>
+                        <ChevronDown className="w-3 h-3 text-zinc-500" />
+                      </button>
+
+                      {/* Model Popover */}
+                      {isModelMenuOpen && (
+                        <div className="absolute bottom-full left-0 mb-2 w-72 bg-[#141417] border border-zinc-800 rounded-xl shadow-2xl p-2 z-50 animate-in fade-in duration-100">
+                          <div className="px-2 py-1 border-b border-zinc-800 flex items-center justify-between text-[10px] font-mono text-zinc-500 uppercase">
+                            <span>Zero-Cost Model Route</span>
+                            <span className="text-emerald-400">Guaranteed $0.00</span>
+                          </div>
+                          <div className="py-1 space-y-0.5">
+                            {models.map((m) => {
+                              const isSelected = m.id === activeModelId;
+                              return (
+                                <button
+                                  key={m.id}
+                                  onClick={() => {
+                                    setActiveModelId(m.id);
+                                    setIsModelMenuOpen(false);
+                                  }}
+                                  className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition text-xs ${
+                                    isSelected
+                                      ? 'bg-zinc-800 text-white font-medium'
+                                      : 'text-zinc-400 hover:bg-zinc-850 hover:text-zinc-200'
+                                  }`}
+                                >
+                                  <div>
+                                    <div className="font-mono text-xs">{m.name}</div>
+                                    <div className="text-[10px] text-zinc-500">{m.provider} • Free Tier</div>
+                                  </div>
+                                  {isSelected && <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 ml-2" />}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
 
               {/* Status Indicator */}

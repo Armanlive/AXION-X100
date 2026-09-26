@@ -39,6 +39,17 @@ export type TabType =
 const STORAGE_KEY_CHATS = 'axion_chat_sessions_v1';
 const STORAGE_KEY_PROVIDERS = 'axion_cloud_providers_v1';
 const STORAGE_KEY_WORKSPACE = 'axion_active_workspace_v1';
+const STORAGE_KEY_BOSS_LOCKED = 'axion_boss_locked_v1';
+
+function loadInitialBossLocked(): boolean {
+  if (typeof window !== 'undefined') {
+    try {
+      const val = localStorage.getItem(STORAGE_KEY_BOSS_LOCKED);
+      if (val === 'false') return false;
+    } catch (e) {}
+  }
+  return true; // Boss Agent locked by default
+}
 
 // Load stored chats or initialize
 function loadInitialChatSessions(): { sessions: ChatSession[]; activeId: string } {
@@ -58,7 +69,7 @@ function loadInitialChatSessions(): { sessions: ChatSession[]; activeId: string 
   const defaultSession: ChatSession = {
     id: `chat-${Date.now()}`,
     title: 'New Conversation',
-    workspaceId: 'vehicle-stock-management',
+    workspaceId: 'nexus-core',
     createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     messages: [] // Starts completely empty
@@ -128,6 +139,7 @@ interface AxionState {
   splitTerminalId: string | null;
   selectedAgentId: string;
   isManualMode: boolean;
+  isBossLocked: boolean;
   speakingMessageId: string | null;
   activeDiffModal: DiffHunk | null;
 
@@ -160,6 +172,7 @@ interface AxionState {
   // Actions - Workspace
   switchWorkspace: (workspaceId: string) => void;
   openCustomFolder: (name: string, path: string) => void;
+  loadDirectoryFiles: (name: string, path: string, loadedFiles: Record<string, string>) => void;
   closeWorkspace: () => void;
   setIsFolderPickerOpen: (open: boolean) => void;
 
@@ -186,6 +199,7 @@ interface AxionState {
   // Actions - Agents & Workflow
   setSelectedAgentId: (id: string) => void;
   setIsManualMode: (manual: boolean) => void;
+  setIsBossLocked: (locked: boolean) => void;
   toggleAgentEnabled: (agentId: string) => void;
   createCustomAgent: (agent: Partial<Agent>) => void;
   setSpeakingMessageId: (id: string | null) => void;
@@ -210,10 +224,11 @@ interface AxionState {
 }
 
 const initialChatData = loadInitialChatSessions();
+const initialBossLocked = loadInitialBossLocked();
 
 export const useAxionStore = create<AxionState>((set, get) => ({
   currentTab: 'workspace',
-  projectPath: 'E:\\Projects\\vehicle-stock-management',
+  projectPath: 'E:\\Projects\\nexus-core',
   files: { ...INITIAL_WORKSPACE_FILES },
   selectedFilePath: 'src/components/Header.tsx',
   agents: EXPANDED_SPECIALIST_AGENTS,
@@ -222,40 +237,44 @@ export const useAxionStore = create<AxionState>((set, get) => ({
   isPaidOverrideModalOpen: false,
   pendingPaidModelId: null,
 
+  // Boss Agent Lock State (Default: Locked Autonomous)
+  isBossLocked: initialBossLocked,
+  isManualMode: !initialBossLocked,
+
   // Chat sessions
   chatSessions: initialChatData.sessions,
   activeChatId: initialChatData.activeId,
   messages: initialChatData.sessions.find((s) => s.id === initialChatData.activeId)?.messages || [],
   chatSearchQuery: '',
 
-  // Workspaces
+  // Workspaces (Real native folders)
   workspaces: [
-    {
-      id: 'vehicle-stock-management',
-      name: 'vehicle-stock-management',
-      path: 'E:\\Projects\\vehicle-stock-management',
-      branch: 'main',
-      isLocalTauri: true,
-      lastOpened: 'Just now'
-    },
     {
       id: 'nexus-core',
       name: 'nexus-core',
       path: 'E:\\Projects\\nexus-core',
       branch: 'main',
-      isLocalTauri: false,
-      lastOpened: '1 hour ago'
+      isLocalTauri: true,
+      lastOpened: 'Just now'
     },
     {
       id: 'axion-engine',
       name: 'axion-engine',
       path: 'E:\\Projects\\axion-engine',
       branch: 'dev/v1',
+      isLocalTauri: true,
+      lastOpened: '1 hour ago'
+    },
+    {
+      id: 'dashboard-ui',
+      name: 'dashboard-ui',
+      path: 'E:\\Projects\\dashboard-ui',
+      branch: 'main',
       isLocalTauri: false,
       lastOpened: 'Yesterday'
     }
   ],
-  activeWorkspaceId: 'vehicle-stock-management',
+  activeWorkspaceId: 'nexus-core',
   isFolderPickerOpen: false,
 
   // Cloud Brain & Providers
@@ -283,7 +302,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       id: 'act-init-1',
       step: 'Workspace Initialized',
       agent: 'Boss Agent',
-      detail: 'Loaded local repository context for vehicle-stock-management',
+      detail: 'Loaded local repository context for nexus-core',
       timestamp: '10:00:00',
       status: 'completed'
     },
@@ -313,7 +332,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
   ],
   terminalLogs: [
     'AXION Native Shell Environment v1.0.0 [Ready]',
-    'Workspace root: E:\\Projects\\vehicle-stock-management [Local Mount]',
+    'Workspace root: E:\\Projects\\nexus-core [Local Mount]',
     'Type any command or use quick actions.'
   ],
   auditLogs: [
@@ -348,7 +367,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       type: 'powershell',
       logs: [
         'Windows PowerShell 7.4.2 [Simulated Preview Shell]',
-        'AXION Workspace Environment: E:\\Projects\\vehicle-stock-management',
+        'AXION Workspace Environment: E:\\Projects\\nexus-core',
         'Note: Browser preview uses client sandbox; production connects to native OS process via Tauri IPC.'
       ],
       createdAt: '10:00:00'
@@ -459,18 +478,43 @@ export const useAxionStore = create<AxionState>((set, get) => ({
     let response = `Command executed: ${cmd}`;
     let exitCode = 0;
 
-    if (cmd === 'npm run build' || cmd === 'npm build') {
-      response = 'tsc && vite build\n1,624 modules transformed in 2.14s. Zero errors.';
-    } else if (cmd === 'npm test' || cmd === 'vitest') {
-      response = 'Acceptance Tests: 10 / 10 PASS (100%)\nRelease Candidate Status: VERIFIED';
-    } else if (cmd === 'git status') {
-      response = `On branch main\nYour branch is up to date with origin/main.\nChanges staged: None.`;
-    } else if (cmd.startsWith('cat ') || cmd.startsWith('type ')) {
-      const p = cmd.split(' ')[1];
-      response = state.files[p] ? `Content of ${p}:\n${state.files[p]}` : `File not found: ${p}`;
-    } else if (cmd === 'clear' || cmd === 'cls') {
+    const lower = cmd.toLowerCase();
+
+    if (cmd === 'clear' || cmd === 'cls') {
       get().clearSessionLogs(sessionId);
       return;
+    } else if (lower === 'npm run dev' || lower === 'npm start') {
+      response = `  VITE v5.4.2  ready in 184 ms\n\n  ➜  Local:   http://localhost:3000/\n  ➜  Network: use --host to expose\n  ➜  press h + enter to show help\n[Vite] Hot Module Replacement active\n[AXION] Connected to active workspace: ${state.projectPath}`;
+    } else if (lower === 'npm run build' || lower === 'npm build') {
+      const fileCount = Object.keys(state.files).length;
+      response = `> tsc && vite build\n✓ ${fileCount} workspace modules transformed.\ndist/index.html                   0.84 kB │ gzip: 0.42 kB\ndist/assets/index-D7b39a.css      14.2 kB │ gzip: 3.61 kB\ndist/assets/index-B4f91e.js      168.4 kB │ gzip: 52.88 kB\n✓ built in 1.18s. Zero type errors.`;
+    } else if (lower === 'npm test' || lower === 'vitest') {
+      response = `✓ tests/diffGate.test.ts (4 tests) 38ms\n✓ tests/bossRouter.test.ts (6 tests) 54ms\n✓ tests/sandboxBoundary.test.ts (3 tests) 28ms\n\nTest Files  3 passed (3)\n     Tests  13 passed (13)\n  Duration  295ms\nRelease Candidate Status: VERIFIED`;
+    } else if (lower === 'git status') {
+      response = `On branch main\nYour branch is up to date with 'origin/main'.\n\nChanges staged for commit: none\nWorking tree clean (sandbox boundary active)`;
+    } else if (lower === 'git branch') {
+      response = `* main\n  dev/v1`;
+    } else if (lower === 'git log' || lower === 'git log -n 3') {
+      response = `commit 4f82a1d (HEAD -> main)\nAuthor: AXION Boss Agent <boss@axion.local>\nDate:   Today 10:14:02\n\n    feat: autonomous workspace verification and zero-cost router bootstrap\n\ncommit 19e4b7c\nAuthor: User <developer@workspace.local>\nDate:   Yesterday 18:22:10\n\n    chore: init project workspace skeleton`;
+    } else if (lower === 'ls' || lower === 'dir') {
+      const fileList = Object.keys(state.files);
+      response = `Directory: ${state.projectPath}\nMode                Length Name\n----                ------ ----\n${fileList.map((f) => `-a---         ${state.files[f]?.length || 1024} ${f}`).join('\n')}`;
+    } else if (lower === 'pwd') {
+      response = state.projectPath;
+    } else if (lower === 'node -v') {
+      response = 'v20.18.0';
+    } else if (lower === 'npm -v') {
+      response = '10.8.2';
+    } else if (lower.startsWith('cat ') || lower.startsWith('type ')) {
+      const p = cmd.slice(cmd.indexOf(' ') + 1).trim();
+      response = state.files[p] ? `// Content of ${p}\n${state.files[p]}` : `File not found: "${p}" in active workspace`;
+      if (!state.files[p]) exitCode = 1;
+    } else if (lower === 'opencode status' || lower === 'opencode') {
+      response = `OpenCode CLI v0.4.1 (Autonomous Engineering Agent CLI)\nStatus: RUNNING\nActive Broker: Local Zero-Cost Policy\nPrimary Engine: Gemini 2.0 Flash (Free)\nWorkspace: ${state.projectPath}\nBoss Agent: ${state.isBossLocked ? 'LOCKED (Autonomous)' : 'UNLOCKED (Manual)'}`;
+    } else if (lower === 'help') {
+      response = `Available AXION Terminal Commands:\n  npm run dev       Start local development server on port 3000\n  npm run build     Validate TypeScript and bundle project\n  npm test          Run verification test suite\n  ls / dir          List workspace files\n  pwd               Print active workspace directory\n  cat <path>        Display content of workspace file\n  git status        Show working tree status\n  git branch        List git branches\n  git log           Show recent commit history\n  node -v / npm -v  Display runtime version\n  opencode status   Check autonomous engineering agent status\n  clear / cls       Clear terminal window`;
+    } else {
+      response = `[axion-terminal] Command executed: ${cmd}\nCommand completed with exit code 0.`;
     }
 
     set((s) => ({
@@ -491,7 +535,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
           action: 'TERMINAL_EXEC',
           details: `Session [${sessionId}] executed: "${cmd}" [Exit: ${exitCode}]`,
           exitCode,
-          status: 'SUCCESS'
+          status: exitCode === 0 ? 'SUCCESS' : 'WARN'
         },
         ...s.auditLogs
       ]
@@ -644,6 +688,44 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       ]
     });
   },
+  loadDirectoryFiles: (name, path, loadedFiles) => {
+    const id = name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+    const newWs: WorkspaceInfo = {
+      id,
+      name,
+      path,
+      branch: 'main',
+      isLocalTauri: true,
+      lastOpened: 'Just now'
+    };
+    const updated = [newWs, ...get().workspaces.filter((w) => w.id !== id)];
+    const firstFilePath = Object.keys(loadedFiles)[0] || 'src/App.tsx';
+    set({
+      workspaces: updated,
+      activeWorkspaceId: id,
+      projectPath: path,
+      files: { ...loadedFiles },
+      selectedFilePath: firstFilePath,
+      isFolderPickerOpen: false,
+      terminalLogs: [
+        ...get().terminalLogs,
+        `> Mounted local folder: ${path}`,
+        `> Indexed ${Object.keys(loadedFiles).length} project files into memory.`
+      ],
+      auditLogs: [
+        {
+          id: `AUD-${Date.now()}`,
+          timestamp: new Date().toISOString(),
+          actor: 'USER',
+          action: 'WORKSPACE_SELECT',
+          targetPath: path,
+          details: `Mounted and indexed ${Object.keys(loadedFiles).length} files from "${name}"`,
+          status: 'SUCCESS'
+        },
+        ...get().auditLogs
+      ]
+    });
+  },
   closeWorkspace: () => {
     const fallback = get().workspaces[0];
     if (fallback) {
@@ -747,7 +829,22 @@ export const useAxionStore = create<AxionState>((set, get) => ({
 
   // Agents & Specialized Roles
   setSelectedAgentId: (id) => set({ selectedAgentId: id }),
-  setIsManualMode: (manual) => set({ isManualMode: manual }),
+  setIsManualMode: (manual) => {
+    set({ isManualMode: manual, isBossLocked: !manual });
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(STORAGE_KEY_BOSS_LOCKED, String(!manual));
+      } catch (e) {}
+    }
+  },
+  setIsBossLocked: (locked) => {
+    set({ isBossLocked: locked, isManualMode: !locked });
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(STORAGE_KEY_BOSS_LOCKED, String(locked));
+      } catch (e) {}
+    }
+  },
   setActiveModelId: (modelId) => set({ activeModelId: modelId }),
   toggleAgentEnabled: (agentId) => {
     set((s) => ({
@@ -969,16 +1066,38 @@ export default function StatsCard({ title, value, trend }: StatsCardProps) {
       timestamp: new Date().toLocaleTimeString()
     };
 
-    // Determine active agent persona
+    // Determine active agent persona and autonomous delegation
     const isManual = state.isManualMode;
-    const specialist = state.agents.find((a) => a.id === state.selectedAgentId);
-    const activeAgentName = isManual && specialist ? specialist.name : 'Boss Agent';
-    const activeAgentRole = isManual && specialist ? specialist.role : 'boss';
+    let delegatedSpecialist = state.agents.find((a) => a.id === state.selectedAgentId) || state.agents[0];
+
+    // If Boss Agent is locked, Boss Agent autonomously selects the specialist
+    if (state.isBossLocked) {
+      if (norm.actionType === 'modify_ui' || promptText.toLowerCase().includes('header') || promptText.toLowerCase().includes('layout')) {
+        delegatedSpecialist = state.agents.find((a) => a.name.includes('Frontend Developer')) || state.agents[0];
+      } else if (norm.actionType === 'create_component' || promptText.toLowerCase().includes('component') || promptText.toLowerCase().includes('statscard')) {
+        delegatedSpecialist = state.agents.find((a) => a.name.includes('React Specialist') || a.name.includes('Component Architect')) || state.agents[0];
+      } else if (norm.actionType === 'explain_code') {
+        delegatedSpecialist = state.agents.find((a) => a.name.includes('Code Reviewer') || a.name.includes('Research')) || state.agents[0];
+      } else {
+        delegatedSpecialist = state.agents.find((a) => a.name.includes('Fullstack') || a.name.includes('Software Architect')) || state.agents[0];
+      }
+    }
+
+    const activeAgentName = isManual ? delegatedSpecialist.name : 'Boss Agent';
+    const activeAgentRole = isManual ? delegatedSpecialist.role : 'Autonomous Orchestrator';
     const activeSender = isManual ? ('specialist_agent' as const) : ('boss_agent' as const);
+
+    const activeModel = state.models.find((m) => m.id === state.activeModelId) || state.models[0];
+
+    get().addOrchestrationActivity(
+      'Autonomous Delegation',
+      'Boss Agent',
+      `Assigned ${delegatedSpecialist.name} (${delegatedSpecialist.category}) via ${activeModel.name} ($0.00)`
+    );
 
     get().addOrchestrationActivity(
       'AST Patch Generation',
-      activeAgentName,
+      delegatedSpecialist.name,
       `Synthesized verifiable diff for ${targetFilePath}`
     );
 
@@ -998,13 +1117,13 @@ export default function StatsCard({ title, value, trend }: StatsCardProps) {
         norm.language !== 'en'
           ? `> *Voice Input parsed from ${norm.language === 'hi-hinglish' ? 'Hinglish' : 'Hindi'}:* "${norm.normalizedEnglish}"\n\n`
           : ''
-      }${summaryText}\n\n* **Model Engine**: \`Gemini 2.0 Flash (Free Tier)\`\n* **Target File**: \`${targetFilePath}\`\n* **Status**: Awaiting review signature. Changes remain sandbox-isolated.`,
+      }${summaryText}\n\n* **Target File**: \`${targetFilePath}\`\n* **Status**: Awaiting review signature. Changes remain sandbox-isolated.\n\n---\n*Executed by:* **${delegatedSpecialist.name}** via **${activeModel.name}**`,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       taskId,
       reasoningSteps: [
-        { agent: activeAgentName, action: 'Triage prompt & verify Free router rate limits', status: 'completed' },
+        { agent: 'Boss Agent', action: `Autonomous route to ${delegatedSpecialist.name} via ${activeModel.name}`, status: 'completed' },
         { agent: 'Requirement Analyst', action: `Normalize: "${norm.normalizedEnglish}"`, status: 'completed' },
-        { agent: 'Frontend Developer', action: `Generate AST patch for ${targetFilePath}`, status: 'completed' },
+        { agent: delegatedSpecialist.name, action: `Generate AST patch for ${targetFilePath}`, status: 'completed' },
         { agent: 'Safety Controller', action: 'Stage pre-modification sandbox snapshot', status: 'completed' }
       ],
       proposedDiff: diffHunk
