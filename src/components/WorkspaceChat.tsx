@@ -2,8 +2,9 @@ import React, { useState, useRef, useEffect } from 'react';
 import { useAxionStore } from '../store/useAxionStore';
 import { DiffViewer } from './DiffViewer';
 import { VoiceAudioWaveform } from './VoiceAudioWaveform';
+import { MarkdownRenderer } from './MarkdownRenderer';
 import {
-  Send,
+  ArrowUp,
   Mic,
   MicOff,
   Sparkles,
@@ -12,9 +13,22 @@ import {
   Wrench,
   CheckCircle,
   AlertTriangle,
-  RotateCcw,
   Terminal,
-  Volume2
+  Volume2,
+  Copy,
+  Check,
+  GitCompare,
+  Plus,
+  ChevronDown,
+  ChevronUp,
+  Square,
+  Search,
+  Zap,
+  Sliders,
+  Folder,
+  ShieldCheck,
+  Code,
+  Layers
 } from 'lucide-react';
 
 export const WorkspaceChat: React.FC = () => {
@@ -22,61 +36,152 @@ export const WorkspaceChat: React.FC = () => {
     messages,
     executeUserPrompt,
     isWorking,
-    voiceState,
-    setVoiceState,
+    speechState,
+    setSpeechState,
     triggerBuildErrorDemo,
     healBuildError,
-    setCurrentTab
+    setCurrentTab,
+    selectedAgentId,
+    setSelectedAgentId,
+    agents,
+    isManualMode,
+    setIsManualMode,
+    models,
+    activeModelId,
+    setActiveModelId,
+    speakingMessageId,
+    setSpeakingMessageId,
+    approveDiff,
+    rejectDiff,
+    workspaces,
+    activeWorkspaceId
   } = useAxionStore();
 
   const [inputVal, setInputVal] = useState('');
   const [isRecording, setIsRecording] = useState(false);
-  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const [expandedDiffMsgIds, setExpandedDiffMsgIds] = useState<Record<string, boolean>>({});
+  const [isPlusMenuOpen, setIsPlusMenuOpen] = useState(false);
+  const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false);
+  const [isModelMenuOpen, setIsModelMenuOpen] = useState(false);
+  const [agentSearch, setAgentSearch] = useState('');
+  const [agentCategoryFilter, setAgentCategoryFilter] = useState<string>('ALL');
 
-  // Auto scroll to bottom
+  const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const plusMenuRef = useRef<HTMLDivElement | null>(null);
+  const agentMenuRef = useRef<HTMLDivElement | null>(null);
+  const modelMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const activeSpecialist = agents.find((a) => a.id === selectedAgentId);
+  const activeModel = models.find((m) => m.id === activeModelId) || models[0];
+  const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId) || workspaces[0];
+
+  // Auto scroll to bottom smoothly
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isWorking]);
+
+  // Close menus on outside click
+  useEffect(() => {
+    const handleOutside = (e: MouseEvent) => {
+      if (plusMenuRef.current && !plusMenuRef.current.contains(e.target as Node)) {
+        setIsPlusMenuOpen(false);
+      }
+      if (agentMenuRef.current && !agentMenuRef.current.contains(e.target as Node)) {
+        setIsAgentMenuOpen(false);
+      }
+      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target as Node)) {
+        setIsModelMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    return () => document.removeEventListener('mousedown', handleOutside);
+  }, []);
 
   const handleSend = () => {
     if (!inputVal.trim() || isWorking) return;
     executeUserPrompt(inputVal, false);
     setInputVal('');
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
   };
 
-  // Voice recording simulation / Web Speech API integration
+  const handleInputResize = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    setInputVal(e.target.value);
+    e.target.style.height = 'auto';
+    e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
+  };
+
+  const handleQuickPromptClick = (prompt: string, isVoice = false) => {
+    executeUserPrompt(prompt, isVoice);
+  };
+
+  // Copy entire response
+  const handleCopyMessage = (msgId: string, text: string) => {
+    navigator.clipboard.writeText(text);
+    setCopiedMsgId(msgId);
+    setTimeout(() => setCopiedMsgId(null), 2000);
+  };
+
+  // Text-To-Speech Play / Pause / Stop per message
+  const handleToggleSpeak = (msgId: string, text: string) => {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) return;
+
+    if (speakingMessageId === msgId) {
+      window.speechSynthesis.cancel();
+      setSpeakingMessageId(null);
+      return;
+    }
+
+    window.speechSynthesis.cancel();
+    const cleanSpeech = text
+      .replace(/[#*`_>]/g, '')
+      .replace(/https?:\/\/\S+/g, '')
+      .trim();
+
+    const utterance = new SpeechSynthesisUtterance(cleanSpeech);
+    utterance.rate = 1.05;
+    utterance.onstart = () => setSpeakingMessageId(msgId);
+    utterance.onend = () => setSpeakingMessageId(null);
+    utterance.onerror = () => setSpeakingMessageId(null);
+
+    window.speechSynthesis.speak(utterance);
+  };
+
+  // Voice recording / Web Speech API integration
   const toggleRecording = () => {
     if (isRecording) {
       setIsRecording(false);
-      setVoiceState('ready');
+      setSpeechState('ready');
       return;
     }
 
     setIsRecording(true);
-    setVoiceState('listening');
+    setSpeechState('listening');
 
-    // Check if web speech is supported
     const SpeechRecognition =
       (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
     if (SpeechRecognition) {
       try {
         const recognition = new SpeechRecognition();
-        recognition.lang = 'hi-IN'; // Indian context / Hinglish / English
+        recognition.lang = 'hi-IN';
         recognition.interimResults = false;
         recognition.maxAlternatives = 1;
 
         recognition.onresult = (event: any) => {
           const transcript = event.results[0][0].transcript;
           setIsRecording(false);
-          setVoiceState('parsing');
+          setSpeechState('parsing');
           executeUserPrompt(transcript, true);
         };
 
@@ -94,15 +199,33 @@ export const WorkspaceChat: React.FC = () => {
   };
 
   const fallbackVoiceTrigger = () => {
-    // Simulated realistic Hinglish pilot prompt from README / PILOT_LOG
     setTimeout(() => {
-      setVoiceState('parsing');
+      setSpeechState('parsing');
       setTimeout(() => {
         setIsRecording(false);
-        setVoiceState('working');
+        setSpeechState('working');
         executeUserPrompt('Bhai dashboard ka header thoda chhota kar de aur date right side mein daal de', true);
       }, 700);
     }, 1200);
+  };
+
+  const toggleDiffExpand = (msgId: string) => {
+    setExpandedDiffMsgIds((prev) => ({
+      ...prev,
+      [msgId]: !prev[msgId]
+    }));
+  };
+
+  const handleSelectBossAgent = () => {
+    setIsManualMode(false);
+    setSelectedAgentId('boss-agent');
+    setIsAgentMenuOpen(false);
+  };
+
+  const handleSelectSpecialist = (agentId: string) => {
+    setIsManualMode(true);
+    setSelectedAgentId(agentId);
+    setIsAgentMenuOpen(false);
   };
 
   const quickPrompts = [
@@ -112,232 +235,610 @@ export const WorkspaceChat: React.FC = () => {
       isVoice: true
     },
     {
-      label: 'Explain App Component',
+      label: 'Explain Project Architecture',
       prompt: 'Mere project ka main App component explain karo aur dependencies batao'
     },
     {
       label: 'Create StatsCard Component',
-      prompt: 'Ek naya StatsCard component banao'
+      prompt: 'Ek naya StatsCard component banao with glowing trend metrics'
     },
     {
-      label: 'Simulate Build Error Fix',
+      label: 'Simulate Build Error Recovery',
       action: triggerBuildErrorDemo
     }
   ];
 
+  // Filter specialists for popover
+  const filteredAgents = agents.filter((a) => {
+    const matchesSearch =
+      a.name.toLowerCase().includes(agentSearch.toLowerCase()) ||
+      a.category.toLowerCase().includes(agentSearch.toLowerCase()) ||
+      a.description.toLowerCase().includes(agentSearch.toLowerCase());
+    const matchesCat =
+      agentCategoryFilter === 'ALL' ||
+      a.category.toUpperCase() === agentCategoryFilter.toUpperCase();
+    return matchesSearch && matchesCat;
+  });
+
+  const categories = ['ALL', 'CODING', 'COMMAND', 'RESEARCH', 'WRITING', 'QUALITY', 'DATA'];
+
+  // Empty state hero
+  const hasMessages = messages.length > 0;
+
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#0a0f1d] overflow-hidden">
-      {/* Top Quick Pilot Bar */}
-      <div className="px-4 py-2 bg-[#0d1424] border-b border-[#1b263b] flex items-center justify-between gap-2 overflow-x-auto select-none shrink-0">
-        <div className="flex items-center gap-1.5 text-xs text-slate-400 font-mono">
-          <Sparkles className="w-3.5 h-3.5 text-blue-400" />
-          <span>Quick Pilots:</span>
-        </div>
-        <div className="flex items-center gap-2">
-          {quickPrompts.map((qp, idx) => (
-            <button
-              key={idx}
-              onClick={() => {
-                if (qp.action) qp.action();
-                else if (qp.prompt) executeUserPrompt(qp.prompt, qp.isVoice);
-              }}
-              className="text-[11px] px-2.5 py-1 rounded-md bg-[#141e33] hover:bg-[#1a2845] border border-[#233554] text-slate-300 hover:text-white transition whitespace-nowrap"
-            >
-              {qp.label}
-            </button>
-          ))}
-        </div>
-      </div>
+    <div className="flex-1 flex flex-col h-full bg-[#0b0b0c] overflow-hidden relative">
+      {/* Messages Scroll Area OR Empty Chat Landing Hero */}
+      {hasMessages ? (
+        <div className="flex-1 overflow-y-auto px-4 md:px-8 py-8 space-y-7 max-w-3xl lg:max-w-4xl w-full mx-auto">
+          {messages.map((msg) => {
+            const isUser = msg.sender === 'user';
+            const isSystem = msg.sender === 'system';
+            const isSpeaking = speakingMessageId === msg.id;
+            const isCopied = copiedMsgId === msg.id;
+            const isDiffExpanded = !!expandedDiffMsgIds[msg.id];
 
-      {/* Messages Scroll Area */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4">
-        {messages.map((msg) => {
-          const isUser = msg.sender === 'user';
-          const isSystem = msg.sender === 'system';
-
-          return (
-            <div
-              key={msg.id}
-              className={`flex gap-3 max-w-4xl ${isUser ? 'ml-auto flex-row-reverse' : ''}`}
-            >
-              {/* Avatar */}
+            return (
               <div
-                className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 text-sm shadow-md ${
-                  isUser
-                    ? 'bg-blue-600 text-white'
-                    : isSystem
-                    ? 'bg-amber-600/30 text-amber-300 border border-amber-500/40'
-                    : 'bg-gradient-to-br from-indigo-700 to-purple-800 text-white border border-indigo-500/40'
-                }`}
+                key={msg.id}
+                className={`flex gap-3.5 group ${isUser ? 'justify-end' : 'justify-start'}`}
               >
-                {isUser ? <User className="w-4 h-4" /> : isSystem ? <AlertTriangle className="w-4 h-4" /> : <Bot className="w-4 h-4" />}
-              </div>
+                {/* Left Avatar for Assistant & System */}
+                {!isUser && (
+                  <div
+                    className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 text-xs mt-1 ${
+                      isSystem
+                        ? 'bg-amber-950/40 text-amber-400 border border-amber-800/50'
+                        : 'bg-[#18181b] text-zinc-400 border border-zinc-800'
+                    }`}
+                  >
+                    {isSystem ? <AlertTriangle className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5 text-zinc-300" />}
+                  </div>
+                )}
 
-              {/* Message Bubble Content */}
-              <div className={`space-y-2 flex-1 max-w-[85%] ${isUser ? 'items-end' : ''}`}>
-                <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono">
-                  <span className="font-semibold text-slate-200">
-                    {isUser ? 'You' : msg.agentName || 'AXION Core'}
-                  </span>
-                  <span>{msg.timestamp}</span>
-                  {msg.voiceTranscript && (
-                    <span className="px-1.5 py-0.2 bg-red-500/20 text-red-300 rounded border border-red-500/30 flex items-center gap-1">
-                      <Mic className="w-2.5 h-2.5" />
-                      Voice Input ({msg.voiceTranscript.language})
-                    </span>
-                  )}
-                </div>
-
+                {/* Message Content Container */}
                 <div
-                  className={`p-4 rounded-2xl text-xs leading-relaxed border ${
-                    isUser
-                      ? 'bg-blue-600 text-white border-blue-500 rounded-tr-none'
-                      : isSystem
-                      ? 'bg-amber-950/20 border-amber-800/40 text-amber-200 rounded-tl-none'
-                      : 'bg-[#10182b] border-[#202f4c] text-slate-200 rounded-tl-none shadow-sm'
+                  className={`flex flex-col space-y-1.5 max-w-[88%] sm:max-w-[82%] ${
+                    isUser ? 'items-end' : 'items-start flex-1'
                   }`}
                 >
-                  <p className="whitespace-pre-wrap">{msg.text}</p>
-
-                  {/* Multi-Agent Reasoning Steps */}
-                  {msg.reasoningSteps && (
-                    <div className="mt-3 pt-3 border-t border-[#1e2a42] space-y-1.5">
-                      <span className="text-[10px] font-mono uppercase tracking-wider text-slate-400 font-semibold block">
-                        Agent Orchestration Steps:
+                  {/* Meta Header */}
+                  <div className="flex items-center gap-2 text-[11px] text-zinc-500 font-mono px-0.5">
+                    <span className="font-medium text-zinc-300">
+                      {isUser ? 'You' : msg.agentName || 'Boss Agent'}
+                    </span>
+                    <span>{msg.timestamp}</span>
+                    {msg.voiceTranscript && (
+                      <span className="px-1.5 py-0.2 rounded bg-zinc-800/80 text-zinc-400 border border-zinc-700/60 text-[10px] flex items-center gap-1 font-sans">
+                        <Mic className="w-2.5 h-2.5 text-red-400" />
+                        Voice Input ({msg.voiceTranscript.language})
                       </span>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                        {msg.reasoningSteps.map((step, sIdx) => (
-                          <div
-                            key={sIdx}
-                            className="flex items-center gap-2 px-2.5 py-1 rounded bg-[#0b111e] border border-[#1b263b] text-[11px]"
-                          >
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                            <span className="font-semibold text-blue-300">{step.agent}:</span>
-                            <span className="text-slate-300 truncate">{step.action}</span>
+                    )}
+                  </div>
+
+                  {/* Message Body */}
+                  {isUser ? (
+                    <div className="p-3.5 rounded-2xl bg-zinc-800/90 text-zinc-100 text-sm leading-relaxed border border-zinc-750/70 shadow-sm">
+                      <div className="whitespace-pre-wrap font-sans">{msg.text}</div>
+                    </div>
+                  ) : (
+                    <div className="w-full space-y-3">
+                      {/* Formatted Markdown Body */}
+                      <div className="p-4 rounded-2xl bg-[#121215] border border-zinc-800/90 shadow-sm">
+                        <MarkdownRenderer content={msg.text} />
+                      </div>
+
+                      {/* Autonomous Reasoning Chain if available */}
+                      {msg.reasoningSteps && msg.reasoningSteps.length > 0 && (
+                        <div className="p-3 rounded-xl bg-[#0f0f12] border border-zinc-800/70 space-y-1.5 text-xs font-mono">
+                          <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold flex items-center gap-1.5">
+                            <Sparkles className="w-3 h-3 text-zinc-400" />
+                            <span>Boss Agent Delegation Chain</span>
                           </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                          <div className="space-y-1 pt-1">
+                            {msg.reasoningSteps.map((step, idx) => (
+                              <div key={idx} className="flex items-center gap-2 text-zinc-400">
+                                <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
+                                <span className="font-medium text-zinc-300">{step.agent}:</span>
+                                <span>{step.action}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
 
-                  {/* Proposed Diff Card Gate */}
-                  {msg.proposedDiff && (
-                    <div className="mt-3">
-                      <DiffViewer diff={msg.proposedDiff} />
-                    </div>
-                  )}
+                      {/* Proposed AST Diff Gate Card */}
+                      {msg.proposedDiff && (
+                        <div className="rounded-xl border border-zinc-750 bg-[#141418] overflow-hidden shadow-md">
+                          <div className="p-3 bg-[#18181d] border-b border-zinc-800 flex flex-wrap items-center justify-between gap-2">
+                            <div className="flex items-center gap-2">
+                              <div className="p-1.5 rounded-md bg-zinc-800/80 text-zinc-300">
+                                <GitCompare className="w-4 h-4 text-zinc-300" />
+                              </div>
+                              <div>
+                                <div className="text-xs font-mono font-semibold text-zinc-200 flex items-center gap-2">
+                                  <span>{msg.proposedDiff.filePath}</span>
+                                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400">
+                                    {msg.proposedDiff.taskId}
+                                  </span>
+                                </div>
+                                <div className="text-[11px] text-zinc-400 mt-0.5">
+                                  {msg.proposedDiff.summary}
+                                </div>
+                              </div>
+                            </div>
 
-                  {/* Build Status Card */}
-                  {msg.buildStatus && (
-                    <div className="mt-3 p-3 rounded-xl bg-[#0b111f] border border-[#1c2940] flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        {msg.buildStatus === 'passed' ? (
-                          <CheckCircle className="w-4 h-4 text-emerald-400" />
-                        ) : msg.buildStatus === 'building' ? (
-                          <div className="w-4 h-4 border-2 border-blue-400 border-t-transparent rounded-full animate-spin" />
-                        ) : (
-                          <AlertTriangle className="w-4 h-4 text-red-400" />
-                        )}
-                        <span className="text-xs font-mono">
-                          Native Build Validation:
-                          <strong
-                            className={`ml-1.5 ${
-                              msg.buildStatus === 'passed'
-                                ? 'text-emerald-400'
-                                : msg.buildStatus === 'building'
-                                ? 'text-blue-400'
-                                : 'text-red-400'
-                            }`}
-                          >
-                            {msg.buildStatus.toUpperCase()}
-                          </strong>
-                        </span>
-                      </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => toggleDiffExpand(msg.id)}
+                                className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200 text-xs font-medium transition"
+                              >
+                                <span>{isDiffExpanded ? 'Hide Diff' : 'Review Changes'}</span>
+                                {isDiffExpanded ? (
+                                  <ChevronUp className="w-3.5 h-3.5" />
+                                ) : (
+                                  <ChevronDown className="w-3.5 h-3.5" />
+                                )}
+                              </button>
 
-                      {msg.buildStatus === 'failed' && (
-                        <div className="flex items-center gap-2">
-                          <button
-                            onClick={healBuildError}
-                            className="flex items-center gap-1 px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-[11px] font-semibold transition"
-                          >
-                            <Wrench className="w-3 h-3" />
-                            Ask Boss Agent to Fix
-                          </button>
-                          <button
-                            onClick={() => setCurrentTab('terminal')}
-                            className="flex items-center gap-1 px-2.5 py-1 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded text-[11px] transition"
-                          >
-                            <Terminal className="w-3 h-3" />
-                            View Terminal
-                          </button>
+                              {msg.proposedDiff.status === 'pending_approval' && (
+                                <>
+                                  <button
+                                    onClick={() => rejectDiff(msg.proposedDiff!.id)}
+                                    className="px-2.5 py-1 rounded-md border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-medium transition"
+                                  >
+                                    Reject
+                                  </button>
+                                  <button
+                                    onClick={() => approveDiff(msg.proposedDiff!.id)}
+                                    className="px-3 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm transition"
+                                  >
+                                    Approve
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Expandable full diff inline */}
+                          {isDiffExpanded && (
+                            <div className="p-2 border-t border-zinc-800 bg-[#0c0c0e]">
+                              <DiffViewer diff={msg.proposedDiff} />
+                            </div>
+                          )}
+                        </div>
+                      )}
+
+                      {/* Native Build Status Card */}
+                      {msg.buildStatus && (
+                        <div className="p-2.5 rounded-lg bg-[#121215] border border-zinc-800 flex items-center justify-between my-1">
+                          <div className="flex items-center gap-2">
+                            {msg.buildStatus === 'passed' ? (
+                              <CheckCircle className="w-4 h-4 text-emerald-400" />
+                            ) : msg.buildStatus === 'building' ? (
+                              <div className="w-3.5 h-3.5 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
+                            ) : (
+                              <AlertTriangle className="w-4 h-4 text-rose-400" />
+                            )}
+                            <span className="text-xs font-mono text-zinc-300">
+                              Build Validation:{' '}
+                              <strong
+                                className={
+                                  msg.buildStatus === 'passed'
+                                    ? 'text-emerald-400'
+                                    : msg.buildStatus === 'building'
+                                    ? 'text-zinc-300'
+                                    : 'text-rose-400'
+                                }
+                              >
+                                {msg.buildStatus.toUpperCase()}
+                              </strong>
+                            </span>
+                          </div>
+
+                          {msg.buildStatus === 'failed' && (
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={healBuildError}
+                                className="flex items-center gap-1 px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 rounded text-xs font-medium transition"
+                              >
+                                <Wrench className="w-3 h-3 text-amber-400" />
+                                Auto-Heal Regression
+                              </button>
+                              <button
+                                onClick={() => setCurrentTab('terminal')}
+                                className="flex items-center gap-1 px-2 py-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 rounded text-xs transition"
+                              >
+                                <Terminal className="w-3 h-3" />
+                                Logs
+                              </button>
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>
                   )}
+
+                  {/* Subtle Hover Action Toolbar for Assistant */}
+                  {!isUser && (
+                    <div className="flex items-center gap-1 pt-1 opacity-60 group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => handleCopyMessage(msg.id, msg.text)}
+                        className="p-1.5 rounded hover:bg-zinc-800/80 text-zinc-500 hover:text-zinc-200 transition"
+                        title="Copy response"
+                      >
+                        {isCopied ? (
+                          <Check className="w-3.5 h-3.5 text-emerald-400" />
+                        ) : (
+                          <Copy className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+
+                      <button
+                        onClick={() => handleToggleSpeak(msg.id, msg.text)}
+                        className={`p-1.5 rounded transition ${
+                          isSpeaking
+                            ? 'text-amber-400 hover:bg-amber-500/10'
+                            : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/80'
+                        }`}
+                        title={isSpeaking ? 'Stop speaking' : 'Listen to response'}
+                      >
+                        {isSpeaking ? (
+                          <Square className="w-3.5 h-3.5 fill-current animate-pulse" />
+                        ) : (
+                          <Volume2 className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {/* Right Avatar for User */}
+                {isUser && (
+                  <div className="w-6 h-6 rounded-md bg-zinc-800 text-zinc-400 border border-zinc-700 flex items-center justify-center shrink-0 text-xs mt-1">
+                    <User className="w-3.5 h-3.5" />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Working Indicator */}
+          {isWorking && (
+            <div className="flex items-center gap-3 text-xs text-zinc-400 font-mono animate-pulse pt-2">
+              <div className="w-6 h-6 rounded-md bg-zinc-800/80 flex items-center justify-center text-zinc-400">
+                <Bot className="w-3.5 h-3.5" />
+              </div>
+              <span>
+                {isManualMode && activeSpecialist
+                  ? `${activeSpecialist.name} generating code patch...`
+                  : 'Boss Agent triaging & generating AST diff...'}
+              </span>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
+      ) : (
+        /* ==================================================
+           5. NEW CHAT LANDING / AXION BRAND HERO (NEXTRON STYLE)
+           ================================================== */
+        <div className="flex-1 flex flex-col items-center justify-center px-4 overflow-y-auto max-w-3xl w-full mx-auto text-center space-y-6 animate-in fade-in duration-200 py-10">
+          {/* Glowing Brand Icon */}
+          <div className="relative group">
+            <div className="w-14 h-14 rounded-2xl bg-zinc-900 border border-zinc-750 flex items-center justify-center shadow-2xl relative z-10">
+              <span className="text-xl font-bold font-mono tracking-tight text-white">AX</span>
+            </div>
+            <div className="absolute inset-0 bg-white/5 rounded-2xl blur-xl" />
+          </div>
+
+          {/* Headings */}
+          <div className="space-y-2">
+            <div className="text-xs font-mono font-medium text-zinc-500 uppercase tracking-widest">
+              AXION-X100
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+              How can AXION help?
+            </h1>
+            <p className="text-xs sm:text-sm text-zinc-400 max-w-md mx-auto leading-relaxed">
+              One private local workspace. 100 specialists. One intelligent Boss Agent.
+            </p>
+          </div>
+
+          {/* Quick Prompts Starters */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full max-w-xl text-left pt-2">
+            {quickPrompts.map((qp, idx) => (
+              <button
+                key={idx}
+                onClick={() => {
+                  if (qp.action) qp.action();
+                  else if (qp.prompt) handleQuickPromptClick(qp.prompt, qp.isVoice);
+                }}
+                className="p-3 rounded-xl bg-[#121215] border border-zinc-800/80 hover:border-zinc-700 hover:bg-[#161619] transition group"
+              >
+                <div className="text-xs font-medium text-zinc-200 group-hover:text-white flex items-center justify-between">
+                  <span>{qp.label}</span>
+                  <ArrowUp className="w-3 h-3 text-zinc-500 group-hover:text-zinc-300 rotate-45 transition" />
+                </div>
+                {qp.prompt && (
+                  <div className="text-[11px] text-zinc-500 truncate mt-1">
+                    "{qp.prompt}"
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ==================================================
+         4. BOSS AGENT & CHAT COMPOSER (MATCH NEXTRON INTERACTION)
+         ================================================== */}
+      <div className="p-4 bg-gradient-to-t from-[#0b0b0c] via-[#0b0b0c]/90 to-transparent shrink-0">
+        <div className="max-w-3xl lg:max-w-4xl mx-auto space-y-2">
+          {/* Active Voice Waveform Pill (Only appears when voice is active!) */}
+          <div className="flex justify-center">
+            <VoiceAudioWaveform isActive={isRecording} state={speechState} />
+          </div>
+
+          {/* Composer Box */}
+          <div className="bg-[#131316] border border-zinc-800/90 hover:border-zinc-700/80 rounded-2xl p-3 shadow-xl shadow-black/40 transition-all focus-within:border-zinc-600 focus-within:ring-1 focus-within:ring-zinc-600/30">
+            {/* Input Row */}
+            <div className="flex items-start gap-2.5">
+              {/* Plus Menu Button */}
+              <div className="relative" ref={plusMenuRef}>
+                <button
+                  onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
+                  className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition mt-0.5"
+                  title="Quick prompt presets"
+                >
+                  <Plus className="w-4 h-4" />
+                </button>
+
+                {isPlusMenuOpen && (
+                  <div className="absolute bottom-full left-0 mb-2 w-64 bg-[#18181b] border border-zinc-800 rounded-xl shadow-2xl p-1 z-50 animate-in fade-in duration-100">
+                    <div className="px-2.5 py-1 text-[10px] font-mono text-zinc-500 uppercase tracking-wider font-semibold">
+                      Quick Pilots & Presets
+                    </div>
+                    {quickPrompts.map((qp, idx) => (
+                      <button
+                        key={idx}
+                        onClick={() => {
+                          setIsPlusMenuOpen(false);
+                          if (qp.action) qp.action();
+                          else if (qp.prompt) executeUserPrompt(qp.prompt, qp.isVoice);
+                        }}
+                        className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white transition flex items-center justify-between"
+                      >
+                        <span className="truncate">{qp.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Textarea */}
+              <textarea
+                ref={textareaRef}
+                value={inputVal}
+                onChange={handleInputResize}
+                onKeyDown={handleKeyDown}
+                rows={1}
+                placeholder={
+                  isRecording
+                    ? 'Listening... Speak in Hindi, Hinglish, or English'
+                    : 'Ask AXION anything in English or Hinglish (e.g. "Bhai header thoda chhota kar de")...'
+                }
+                className="flex-1 bg-transparent text-sm text-[#f4f4f5] placeholder-zinc-500 focus:outline-none resize-none max-h-36 leading-relaxed font-sans pt-0.5"
+              />
+
+              {/* Voice Microphone Toggle */}
+              <button
+                onClick={toggleRecording}
+                className={`p-1.5 rounded-lg transition mt-0.5 ${
+                  isRecording
+                    ? 'bg-rose-600 text-white shadow-lg shadow-rose-900/40 animate-pulse'
+                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
+                }`}
+                title="Toggle Hinglish / Voice Coding Engine"
+              >
+                {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+              </button>
+
+              {/* Send Button */}
+              <button
+                onClick={handleSend}
+                disabled={!inputVal.trim() || isWorking}
+                className="w-7 h-7 rounded-full bg-zinc-100 hover:bg-white text-zinc-950 disabled:opacity-20 disabled:hover:bg-zinc-100 flex items-center justify-center transition shadow-sm font-bold mt-0.5 shrink-0"
+                title="Send Prompt (Enter)"
+              >
+                <ArrowUp className="w-4 h-4 stroke-[2.5]" />
+              </button>
+            </div>
+
+            {/* Composer Footer: Compact [ 👑 Boss Agent ] & [ Model/Route ▼ ] */}
+            <div className="pt-2 mt-2 border-t border-zinc-800/50 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2">
+                {/* COMPACT BOSS AGENT / SPECIALIST SELECTOR BUTTON */}
+                <div className="relative" ref={agentMenuRef}>
+                  <button
+                    onClick={() => setIsAgentMenuOpen(!isAgentMenuOpen)}
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-850 hover:bg-zinc-800 text-zinc-200 border border-zinc-750/70 text-[11px] font-medium transition shadow-sm"
+                    title="Select Boss Agent (Auto) or Manual Specialist"
+                  >
+                    {!isManualMode ? (
+                      <>
+                        <span>👑</span>
+                        <span>Boss Agent (Auto)</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>{activeSpecialist?.avatar || '🤖'}</span>
+                        <span className="truncate max-w-[120px]">{activeSpecialist?.name}</span>
+                      </>
+                    )}
+                    <ChevronDown className="w-3 h-3 text-zinc-500" />
+                  </button>
+
+                  {/* Agent Popover */}
+                  {isAgentMenuOpen && (
+                    <div className="absolute bottom-full left-0 mb-2 w-80 bg-[#141417] border border-zinc-800 rounded-xl shadow-2xl py-2 z-50 animate-in fade-in duration-100 flex flex-col max-h-[420px]">
+                      <div className="px-3 pb-2 border-b border-zinc-800 space-y-2">
+                        <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider font-semibold">
+                          SELECT AGENT MODE
+                        </div>
+                        {/* Search Bar */}
+                        <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-900 border border-zinc-800">
+                          <Search className="w-3 h-3 text-zinc-500" />
+                          <input
+                            type="text"
+                            value={agentSearch}
+                            onChange={(e) => setAgentSearch(e.target.value)}
+                            placeholder="Search 100 specialists..."
+                            className="w-full bg-transparent text-xs text-white placeholder-zinc-500 focus:outline-none"
+                            autoFocus
+                          />
+                        </div>
+                      </div>
+
+                      {/* Boss Agent Option */}
+                      <div className="p-1.5 border-b border-zinc-800/80">
+                        <button
+                          onClick={handleSelectBossAgent}
+                          className={`w-full flex items-center justify-between p-2 rounded-lg text-left transition ${
+                            !isManualMode
+                              ? 'bg-zinc-800 text-white font-medium'
+                              : 'hover:bg-zinc-850 text-zinc-300'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <span className="text-sm">👑</span>
+                            <div>
+                              <div className="font-semibold text-xs text-zinc-100">
+                                Boss Agent (Automatic)
+                              </div>
+                              <div className="text-[10px] text-zinc-400">
+                                Autonomous task decomposition & specialist delegation
+                              </div>
+                            </div>
+                          </div>
+                          {!isManualMode && <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />}
+                        </button>
+                      </div>
+
+                      {/* Category Filter Pills */}
+                      <div className="px-2 py-1.5 flex gap-1 overflow-x-auto border-b border-zinc-800/80 shrink-0">
+                        {categories.map((cat) => (
+                          <button
+                            key={cat}
+                            onClick={() => setAgentCategoryFilter(cat)}
+                            className={`px-2 py-0.5 rounded text-[10px] font-mono shrink-0 transition ${
+                              agentCategoryFilter === cat
+                                ? 'bg-zinc-700 text-white'
+                                : 'text-zinc-500 hover:text-zinc-300'
+                            }`}
+                          >
+                            {cat}
+                          </button>
+                        ))}
+                      </div>
+
+                      {/* Specialists List */}
+                      <div className="overflow-y-auto p-1.5 space-y-0.5 flex-1">
+                        <div className="px-2 py-1 text-[10px] font-mono text-zinc-500 uppercase tracking-wider">
+                          Specialists ({filteredAgents.length})
+                        </div>
+                        {filteredAgents.map((agent) => {
+                          const isSelected = isManualMode && selectedAgentId === agent.id;
+                          return (
+                            <button
+                              key={agent.id}
+                              onClick={() => handleSelectSpecialist(agent.id)}
+                              className={`w-full flex items-center justify-between p-2 rounded-lg text-left transition ${
+                                isSelected
+                                  ? 'bg-zinc-800 text-white font-medium'
+                                  : 'hover:bg-zinc-850/70 text-zinc-300'
+                              }`}
+                            >
+                              <div className="flex items-center gap-2 min-w-0">
+                                <span className="text-sm shrink-0">{agent.avatar}</span>
+                                <div className="truncate">
+                                  <div className="text-xs text-zinc-200 truncate font-medium">
+                                    {agent.name}
+                                  </div>
+                                  <div className="text-[10px] text-zinc-500 truncate">
+                                    {agent.description}
+                                  </div>
+                                </div>
+                              </div>
+                              {isSelected && <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 ml-2" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* COMPACT MODEL / ROUTE SELECTOR BUTTON */}
+                <div className="relative" ref={modelMenuRef}>
+                  <button
+                    onClick={() => setIsModelMenuOpen(!isModelMenuOpen)}
+                    className="flex items-center gap-1.5 px-2 py-1 rounded-md hover:bg-zinc-850 text-zinc-400 hover:text-zinc-200 text-[11px] font-mono transition border border-transparent hover:border-zinc-800"
+                    title="Model Router: Zero-Cost Policy Active"
+                  >
+                    <Zap className="w-3 h-3 text-emerald-400" />
+                    <span className="truncate max-w-[130px]">{activeModel?.name || 'Auto Route'}</span>
+                    <span className="text-[10px] text-emerald-400">Free</span>
+                    <ChevronDown className="w-3 h-3 text-zinc-500" />
+                  </button>
+
+                  {/* Model Popover */}
+                  {isModelMenuOpen && (
+                    <div className="absolute bottom-full left-0 mb-2 w-72 bg-[#141417] border border-zinc-800 rounded-xl shadow-2xl p-2 z-50 animate-in fade-in duration-100">
+                      <div className="px-2 py-1 border-b border-zinc-800 flex items-center justify-between text-[10px] font-mono text-zinc-500 uppercase">
+                        <span>Zero-Cost Model Route</span>
+                        <span className="text-emerald-400">Guaranteed $0.00</span>
+                      </div>
+                      <div className="py-1 space-y-0.5">
+                        {models.map((m) => {
+                          const isSelected = m.id === activeModelId;
+                          return (
+                            <button
+                              key={m.id}
+                              onClick={() => {
+                                setActiveModelId(m.id);
+                                setIsModelMenuOpen(false);
+                              }}
+                              className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition text-xs ${
+                                isSelected
+                                  ? 'bg-zinc-800 text-white font-medium'
+                                  : 'text-zinc-400 hover:bg-zinc-850 hover:text-zinc-200'
+                              }`}
+                            >
+                              <div>
+                                <div className="font-mono text-xs">{m.name}</div>
+                                <div className="text-[10px] text-zinc-500">{m.provider} • Free Tier</div>
+                              </div>
+                              {isSelected && <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 ml-2" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="pt-1.5 mt-1 border-t border-zinc-800 text-[10px] text-zinc-500 leading-tight px-1 font-sans">
+                        Paid models remain blocked by default. Configure custom providers in Cloud Brain.
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
+
+              {/* Status Indicator */}
+              <div className="flex items-center gap-2 text-zinc-500 text-[10px] font-mono">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/80" />
+                <span>Diff Safety Gate Active</span>
+              </div>
             </div>
-          );
-        })}
-
-        {/* Working Indicator */}
-        {isWorking && (
-          <div className="flex items-center gap-3 text-xs text-blue-400 font-mono animate-pulse">
-            <div className="w-6 h-6 rounded-lg bg-blue-500/20 flex items-center justify-center">
-              <Bot className="w-3.5 h-3.5" />
-            </div>
-            <span>Boss Agent triaging & generating AST diff...</span>
           </div>
-        )}
-
-        <div ref={messagesEndRef} />
-      </div>
-
-      {/* Input Tray & Voice Control */}
-      <div className="p-4 bg-[#0c1220] border-t border-[#1b273e] space-y-2 select-none">
-        <div className="flex items-center gap-2">
-          {/* Voice Microphone Toggle */}
-          <button
-            onClick={toggleRecording}
-            className={`p-3 rounded-xl border transition flex items-center gap-2 ${
-              isRecording
-                ? 'bg-red-600 text-white border-red-500 shadow-lg shadow-red-900/40 animate-pulse'
-                : 'bg-[#141f33] border-[#223352] text-slate-300 hover:text-white hover:bg-[#1a2842]'
-            }`}
-            title="Toggle Hinglish / Voice Coding Engine"
-          >
-            {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4 text-sky-400" />}
-            {isRecording && <span className="text-xs font-mono font-bold">Listening...</span>}
-          </button>
-
-          {/* Real-time Waveform */}
-          <VoiceAudioWaveform isActive={isRecording} state={voiceState} />
-
-          {/* Text Input Field */}
-          <div className="flex-1 relative">
-            <input
-              type="text"
-              value={inputVal}
-              onChange={(e) => setInputVal(e.target.value)}
-              onKeyDown={handleKeyDown}
-              placeholder="Talk to your project in English or Hinglish (e.g. 'Bhai dashboard ka header thoda chhota kar de...')"
-              className="w-full px-4 py-2.5 rounded-xl bg-[#11192b] border border-[#233554] text-xs text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 transition font-sans"
-            />
-          </div>
-
-          {/* Send Button */}
-          <button
-            onClick={handleSend}
-            disabled={!inputVal.trim() || isWorking}
-            className="p-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:hover:bg-blue-600 text-white transition shadow-sm"
-          >
-            <Send className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="flex items-center justify-between text-[11px] text-slate-400 font-mono px-1">
-          <span>Zero-Cost Route: Gemini 2.0 Flash ($0.00)</span>
-          <span className="text-emerald-400">Diff Safety Gate: ACTIVE</span>
         </div>
       </div>
     </div>

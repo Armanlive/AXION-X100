@@ -1,73 +1,70 @@
-import React, { useEffect, useRef } from 'react';
+import React from 'react';
+import { SpeechState } from '../types';
 
 interface VoiceAudioWaveformProps {
   isActive: boolean;
-  state: 'idle' | 'listening' | 'parsing' | 'working' | 'ready';
+  state: SpeechState;
 }
 
 export const VoiceAudioWaveform: React.FC<VoiceAudioWaveformProps> = ({ isActive, state }) => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  if (!isActive && (state === 'ready' || state === 'idle')) return null;
 
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
+  // Bar count: compact 7 bars
+  const bars = [14, 24, 38, 20, 32, 18, 12];
 
-    let animationFrameId: number;
-    let phase = 0;
+  const getBarColor = () => {
+    switch (state) {
+      case 'listening':
+        return 'bg-red-500';
+      case 'parsing':
+      case 'understanding':
+        return 'bg-amber-400';
+      case 'working':
+      case 'thinking':
+        return 'bg-blue-400';
+      case 'speaking':
+        return 'bg-emerald-400';
+      default:
+        return 'bg-zinc-500';
+    }
+  };
 
-    const render = () => {
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-      const width = canvas.width;
-      const height = canvas.height;
-      const centerY = height / 2;
-
-      // Color scheme based on state
-      let strokeColor = '#3b82f6';
-      if (state === 'listening') strokeColor = '#ef4444';
-      else if (state === 'parsing') strokeColor = '#f59e0b';
-      else if (state === 'working') strokeColor = '#38bdf8';
-      else strokeColor = '#10b981';
-
-      ctx.strokeStyle = strokeColor;
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-
-      const numPoints = 64;
-      for (let i = 0; i <= numPoints; i++) {
-        const x = (i / numPoints) * width;
-        let amplitude = isActive ? (state === 'listening' ? 14 : 7) : 1.5;
-
-        // Wave math
-        const y =
-          centerY +
-          Math.sin(i * 0.2 + phase) * amplitude * Math.sin((i / numPoints) * Math.PI) +
-          Math.cos(i * 0.4 - phase * 0.8) * (amplitude * 0.5);
-
-        if (i === 0) {
-          ctx.moveTo(x, y);
-        } else {
-          ctx.lineTo(x, y);
-        }
-      }
-
-      ctx.stroke();
-      phase += isActive ? 0.12 : 0.03;
-      animationFrameId = requestAnimationFrame(render);
-    };
-
-    render();
-
-    return () => {
-      cancelAnimationFrame(animationFrameId);
-    };
-  }, [isActive, state]);
+  const getStateLabel = () => {
+    switch (state) {
+      case 'listening':
+        return 'Listening (Hinglish/EN)...';
+      case 'understanding':
+      case 'parsing':
+        return 'Parsing intent...';
+      case 'thinking':
+      case 'working':
+        return 'Synthesizing patch...';
+      case 'speaking':
+        return 'Speaking...';
+      default:
+        return 'Ready';
+    }
+  };
 
   return (
-    <div className="flex items-center gap-2 px-3 py-1 bg-[#0d1424] rounded-lg border border-[#1e2a40]">
-      <canvas ref={canvasRef} width={140} height={24} className="rounded" />
+    <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-xs font-mono animate-in fade-in duration-200">
+      <div className="flex items-center gap-0.5 h-4">
+        {bars.map((height, i) => (
+          <div
+            key={i}
+            className={`w-[2px] rounded-full transition-all duration-150 ${getBarColor()}`}
+            style={{
+              height: isActive
+                ? `${Math.max(4, height * (0.4 + (i % 3) * 0.3))}px`
+                : '3px',
+              animation: isActive ? `pulse 0.8s ease-in-out infinite alternate ${i * 0.1}s` : 'none'
+            }}
+          />
+        ))}
+      </div>
+      <span className="text-[11px] text-zinc-300 font-medium whitespace-nowrap">
+        {getStateLabel()}
+      </span>
     </div>
   );
 };
