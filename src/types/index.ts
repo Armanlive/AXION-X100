@@ -36,12 +36,21 @@ export type ModelTier = 'free' | 'paid_blocked' | 'paid_allowed';
 export interface AIModel {
   id: string;
   name: string;
-  provider: 'Google Gemini' | 'OpenRouter' | 'Ollama Local' | 'Anthropic' | 'OpenAI' | 'Groq' | 'Cloudflare';
+  displayName?: string;
+  provider: string;
+  providerModelId?: string;
   tier: ModelTier;
   costPer1kTokens: string;
+  inputCost?: string;
+  outputCost?: string;
   contextWindow: string;
   status: 'healthy' | 'degraded' | 'rate_limited' | 'offline';
   latencyMs: number;
+  capabilities?: ('coding' | 'reasoning' | 'vision' | 'tool_use' | 'fast')[];
+  codingScore?: number;
+  isLocal?: boolean;
+  online?: boolean;
+  availability?: 'available' | 'requires_key' | 'requires_auth' | 'offline';
 }
 
 export interface ChatMessage {
@@ -88,6 +97,7 @@ export interface DiffHunk {
 }
 
 export interface TaskSnapshot {
+  id?: string;
   taskId: string;
   timestamp: string;
   title: string;
@@ -96,6 +106,9 @@ export interface TaskSnapshot {
   modifiedContent: string;
   reverted: boolean;
   exitCode: number;
+  origin?: 'manual' | 'boss-agent' | 'specialist-agent';
+  workspaceId?: string;
+  workspacePath?: string;
 }
 
 export interface AuditLog {
@@ -105,18 +118,38 @@ export interface AuditLog {
   action:
     | 'WORKSPACE_SELECT'
     | 'FILE_READ'
+    | 'FILE_OPEN'
+    | 'FILE_EDIT_STARTED'
+    | 'DIFF_CREATED'
+    | 'DIFF_APPROVED'
+    | 'DIFF_REJECTED'
+    | 'FILE_WRITE'
+    | 'FILE_CREATE'
+    | 'FILE_RENAME'
+    | 'FILE_DELETE'
+    | 'ROLLBACK'
     | 'PATCH_GENERATED'
     | 'USER_APPROVED'
-    | 'FILE_WRITE'
     | 'TERMINAL_EXEC'
+    | 'COMMAND_PROPOSED'
+    | 'COMMAND_APPROVED'
+    | 'COMMAND_REJECTED'
+    | 'COMMAND_STARTED'
+    | 'COMMAND_FINISHED'
+    | 'COMMAND_FAILED'
+    | 'PROCESS_KILLED'
     | 'UNDO_ROLLBACK'
     | 'MODEL_FAILOVER'
     | 'PAID_OVERRIDE'
     | 'PROVIDER_CONNECT'
     | 'SPEECH_SESSION';
   targetPath?: string;
+  command?: string;
+  cwd?: string;
+  origin?: 'manual' | 'boss-agent' | 'specialist-agent' | 'system' | 'user';
   details: string;
   exitCode?: number;
+  durationMs?: number;
   status: 'SUCCESS' | 'WARN' | 'BLOCKED';
 }
 
@@ -128,13 +161,47 @@ export interface WorkspaceFile {
   children?: WorkspaceFile[];
 }
 
+export interface ProjectFileEntry {
+  relativePath: string;
+  name: string;
+  extension: string;
+  size: number;
+  modifiedTimestamp?: number;
+  isDirectory: boolean;
+  content?: string;
+  isLoaded?: boolean;
+}
+
+export interface ActiveWorkspace {
+  id: string;
+  name: string;
+  absolutePath: string;
+  projectType: string;
+  framework: string;
+  packageManager: string;
+  gitBranch: string;
+  gitRepository: boolean;
+  indexedFileCount: number;
+  selectedAt: string;
+  lastOpenedAt: string;
+  status: 'ready' | 'scanning' | 'error' | 'disconnected';
+  runtimeMode?: 'native-tauri' | 'web-sandbox' | 'memory-only';
+  scripts?: Record<string, string>;
+  dependenciesCount?: number;
+  dirHandle?: any; // Native FileSystemDirectoryHandle when in browser
+}
+
 export interface WorkspaceInfo {
   id: string;
   name: string;
   path: string;
   branch: string;
   isLocalTauri?: boolean;
+  runtimeMode?: 'native-tauri' | 'web-sandbox' | 'memory-only';
   lastOpened?: string;
+  projectType?: string;
+  framework?: string;
+  indexedFileCount?: number;
 }
 
 export interface PilotTask {
@@ -164,10 +231,57 @@ export type PanelDockPosition = 'bottom' | 'left' | 'right';
 export interface TerminalSession {
   id: string;
   name: string;
-  type: 'powershell' | 'bash' | 'opencode' | 'gemini-cli' | 'custom';
+  type: 'powershell' | 'cmd' | 'git-bash' | 'wsl' | 'bash' | 'opencode' | 'gemini-cli' | 'custom';
+  shell?: string;
+  cwd: string;
+  pid?: number;
+  status: 'idle' | 'running' | 'terminated' | 'error';
   logs: string[];
-  cwd?: string;
+  history: string[];
+  historyIndex?: number;
   createdAt: string;
+  startedAt?: string;
+  finishedAt?: string;
+  lastExitCode?: number;
+  durationMs?: number;
+  activeProcessName?: string;
+}
+
+export interface OutputLogEvent {
+  id: string;
+  timestamp: string;
+  category: 'BUILD' | 'LINT' | 'TEST' | 'DEV_SERVER' | 'WORKSPACE' | 'AI' | 'SECURITY' | 'PROCESS';
+  level: 'INFO' | 'SUCCESS' | 'WARN' | 'ERROR';
+  message: string;
+  exitCode?: number;
+  details?: string;
+}
+
+export interface ProposedTerminalCommand {
+  id: string;
+  command: string;
+  cwd: string;
+  isDangerous: boolean;
+  riskReason?: string;
+  origin: 'manual' | 'boss-agent' | 'specialist-agent' | 'system' | 'user';
+  agentName?: string;
+  sessionId?: string;
+  timestamp: string;
+}
+
+export interface PreviewRuntime {
+  workspaceId: string;
+  processId?: number | string;
+  sessionId?: string;
+  command: string;
+  cwd: string;
+  url: string | null;
+  port: number | null;
+  status: 'idle' | 'starting' | 'running' | 'error' | 'stopped';
+  startedAt?: string;
+  framework?: string;
+  errorLogs?: string;
+  exitCode?: number;
 }
 
 // Compute & Cloud Brain
@@ -190,7 +304,18 @@ export interface CloudProvider {
 
 // Voice & Speech Mode
 export type SpeechMode = 'chat' | 'speech';
-export type SpeechState = 'idle' | 'listening' | 'understanding' | 'thinking' | 'speaking' | 'parsing' | 'working' | 'ready';
+export type SpeechState =
+  | 'idle'
+  | 'listening'
+  | 'transcribing'
+  | 'understanding'
+  | 'thinking'
+  | 'speaking'
+  | 'parsing'
+  | 'working'
+  | 'ready'
+  | 'paused'
+  | 'error';
 
 export interface VoiceSettings {
   language: 'auto' | 'en' | 'hi' | 'hinglish';

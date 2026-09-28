@@ -56,6 +56,7 @@ export const WorkspaceChat: React.FC = () => {
     setSpeakingMessageId,
     approveDiff,
     rejectDiff,
+    activeWorkspace,
     workspaces,
     activeWorkspaceId
   } = useAxionStore();
@@ -78,7 +79,6 @@ export const WorkspaceChat: React.FC = () => {
 
   const activeSpecialist = agents.find((a) => a.id === selectedAgentId);
   const activeModel = models.find((m) => m.id === activeModelId) || models[0];
-  const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId) || workspaces[0];
 
   // Auto scroll to bottom smoothly
   useEffect(() => {

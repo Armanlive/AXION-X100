@@ -19,13 +19,13 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
   const { diffViewMode, setDiffViewMode, approveDiff, rejectDiff } = useAxionStore();
 
   const handleApprove = () => {
+    approveDiff(diff.id);
     if (onApprove) onApprove();
-    else approveDiff(diff.id);
   };
 
   const handleReject = () => {
+    rejectDiff(diff.id);
     if (onReject) onReject();
-    else rejectDiff(diff.id);
   };
 
   const oldLines = diff.oldContent.split('\n');

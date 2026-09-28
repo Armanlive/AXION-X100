@@ -29,47 +29,66 @@ export default function App() {
     activeDiffModal,
     closeDiffModal,
     speechMode,
-    isPreviewPanelOpen
+    isFilePanelOpen,
+    isPreviewPanelOpen,
+    auxPanelWidth,
+    setAuxPanelWidth
   } = useAxionStore();
 
-  const [isDraggingDivider, setIsDraggingDivider] = useState(false);
-  const dragStartRef = useRef<{ startX: number; startY: number; startDim: number }>({
+  const [isDraggingTerminalDivider, setIsDraggingTerminalDivider] = useState(false);
+  const dragTerminalStartRef = useRef<{ startX: number; startY: number; startDim: number }>({
     startX: 0,
     startY: 0,
     startDim: 0
   });
 
-  const handleMouseDownDivider = (e: React.MouseEvent) => {
+  const [isDraggingAuxDivider, setIsDraggingAuxDivider] = useState(false);
+  const dragAuxStartRef = useRef<{ startX: number; startW: number }>({
+    startX: 0,
+    startW: 0
+  });
+
+  const handleMouseDownTerminalDivider = (e: React.MouseEvent) => {
     e.preventDefault();
-    setIsDraggingDivider(true);
-    dragStartRef.current = {
+    setIsDraggingTerminalDivider(true);
+    dragTerminalStartRef.current = {
       startX: e.clientX,
       startY: e.clientY,
       startDim: terminalDockPosition === 'bottom' ? terminalHeight : terminalWidth
     };
   };
 
+  const handleMouseDownAuxDivider = (e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsDraggingAuxDivider(true);
+    dragAuxStartRef.current = {
+      startX: e.clientX,
+      startW: auxPanelWidth
+    };
+  };
+
+  // Terminal drag listener
   useEffect(() => {
-    if (!isDraggingDivider) return;
+    if (!isDraggingTerminalDivider) return;
 
     const handleMouseMove = (e: MouseEvent) => {
       if (terminalDockPosition === 'bottom') {
-        const delta = dragStartRef.current.startY - e.clientY;
-        const newH = Math.max(120, Math.min(dragStartRef.current.startDim + delta, 650));
+        const delta = dragTerminalStartRef.current.startY - e.clientY;
+        const newH = Math.max(120, Math.min(dragTerminalStartRef.current.startDim + delta, 650));
         setTerminalHeight(newH);
       } else if (terminalDockPosition === 'right') {
-        const delta = dragStartRef.current.startX - e.clientX;
-        const newW = Math.max(260, Math.min(dragStartRef.current.startDim + delta, 800));
+        const delta = dragTerminalStartRef.current.startX - e.clientX;
+        const newW = Math.max(260, Math.min(dragTerminalStartRef.current.startDim + delta, 800));
         setTerminalWidth(newW);
       } else if (terminalDockPosition === 'left') {
-        const delta = e.clientX - dragStartRef.current.startX;
-        const newW = Math.max(260, Math.min(dragStartRef.current.startDim + delta, 800));
+        const delta = e.clientX - dragTerminalStartRef.current.startX;
+        const newW = Math.max(260, Math.min(dragTerminalStartRef.current.startDim + delta, 800));
         setTerminalWidth(newW);
       }
     };
 
     const handleMouseUp = () => {
-      setIsDraggingDivider(false);
+      setIsDraggingTerminalDivider(false);
     };
 
     window.addEventListener('mousemove', handleMouseMove);
@@ -78,12 +97,42 @@ export default function App() {
       window.removeEventListener('mousemove', handleMouseMove);
       window.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [isDraggingDivider, terminalDockPosition, terminalHeight, terminalWidth, setTerminalHeight, setTerminalWidth]);
+  }, [isDraggingTerminalDivider, terminalDockPosition, terminalHeight, terminalWidth, setTerminalHeight, setTerminalWidth]);
+
+  // Auxiliary panel drag listener
+  useEffect(() => {
+    if (!isDraggingAuxDivider) return;
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const delta = dragAuxStartRef.current.startX - e.clientX;
+      const newW = Math.max(260, Math.min(dragAuxStartRef.current.startW + delta, 750));
+      setAuxPanelWidth(newW);
+    };
+
+    const handleMouseUp = () => {
+      setIsDraggingAuxDivider(false);
+    };
+
+    window.addEventListener('mousemove', handleMouseMove);
+    window.addEventListener('mouseup', handleMouseUp);
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isDraggingAuxDivider, auxPanelWidth, setAuxPanelWidth]);
 
   return (
-    <div className={`h-screen w-screen flex flex-col bg-[#0b0b0c] text-[#f4f4f5] overflow-hidden select-none font-sans antialiased ${
-      isDraggingDivider ? (terminalDockPosition === 'bottom' ? 'cursor-row-resize' : 'cursor-col-resize') : ''
-    }`}>
+    <div
+      className={`h-screen w-screen flex flex-col bg-[#0b0b0c] text-[#f4f4f5] overflow-hidden select-none font-sans antialiased ${
+        isDraggingTerminalDivider
+          ? terminalDockPosition === 'bottom'
+            ? 'cursor-row-resize'
+            : 'cursor-col-resize'
+          : isDraggingAuxDivider
+          ? 'cursor-col-resize'
+          : ''
+      }`}
+    >
       {/* Top Minimalist Header */}
       <Header />
 
@@ -107,27 +156,43 @@ export default function App() {
                         <TerminalAudit isDockedPanel={true} />
                       </div>
                       <div
-                        onMouseDown={handleMouseDownDivider}
+                        onMouseDown={handleMouseDownTerminalDivider}
                         className="w-1 bg-zinc-800 hover:bg-zinc-500 active:bg-zinc-400 cursor-col-resize shrink-0 transition-colors z-20"
                         title="Drag to resize terminal panel"
                       />
                     </>
                   )}
 
-                  {/* Center Area: Chat + Filesystem + Bottom Terminal */}
+                  {/* Center Area: Chat + Filesystem/Preview + Bottom Terminal */}
                   <div className="flex-1 flex flex-col overflow-hidden min-w-0">
-                    {/* Upper Area: Chat + Filesystem + Preview/Activity Drawer */}
-                    <div className="flex-1 flex overflow-hidden min-w-0">
+                    {/* Upper Area: Chat + On-Demand Resizable Auxiliary Right Panel (Files or Preview) */}
+                    <div className="flex-1 flex overflow-hidden min-w-0 relative">
                       <WorkspaceChat />
-                      <CodeFileViewer />
-                      {isPreviewPanelOpen && <PreviewActivityDrawer />}
+
+                      {/* On-Demand Right Auxiliary Panel (Files / Preview) */}
+                      {(isFilePanelOpen || isPreviewPanelOpen) && (
+                        <>
+                          <div
+                            onMouseDown={handleMouseDownAuxDivider}
+                            className="w-1 bg-zinc-800 hover:bg-zinc-500 active:bg-zinc-400 cursor-col-resize shrink-0 transition-colors z-20"
+                            title="Drag to resize right panel"
+                          />
+                          <div
+                            style={{ width: `${auxPanelWidth}px` }}
+                            className="h-full shrink-0 flex overflow-hidden bg-[#0c0c0e] animate-in slide-in-from-right-2 duration-150 border-l border-zinc-800/80"
+                          >
+                            {isFilePanelOpen && <CodeFileViewer />}
+                            {isPreviewPanelOpen && <PreviewActivityDrawer />}
+                          </div>
+                        </>
+                      )}
                     </div>
 
                     {/* Bottom Docked Terminal */}
                     {isTerminalOpen && terminalDockPosition === 'bottom' && (
                       <>
                         <div
-                          onMouseDown={handleMouseDownDivider}
+                          onMouseDown={handleMouseDownTerminalDivider}
                           className="h-1 bg-zinc-800 hover:bg-zinc-500 active:bg-zinc-400 cursor-row-resize shrink-0 transition-colors z-20"
                           title="Drag to resize terminal panel"
                         />
@@ -142,7 +207,7 @@ export default function App() {
                   {isTerminalOpen && terminalDockPosition === 'right' && (
                     <>
                       <div
-                        onMouseDown={handleMouseDownDivider}
+                        onMouseDown={handleMouseDownTerminalDivider}
                         className="w-1 bg-zinc-800 hover:bg-zinc-500 active:bg-zinc-400 cursor-col-resize shrink-0 transition-colors z-20"
                         title="Drag to resize terminal panel"
                       />

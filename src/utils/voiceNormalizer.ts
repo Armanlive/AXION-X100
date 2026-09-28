@@ -106,3 +106,155 @@ export function normalizeVoiceInput(input: string): NormalizationResult {
     confidence: 1.0
   };
 }
+
+export type SpokenCommandType =
+  | 'OPEN_FILES'
+  | 'OPEN_TERMINAL'
+  | 'OPEN_PREVIEW'
+  | 'OPEN_WORKSPACE'
+  | 'OPEN_AGENT_LAB'
+  | 'OPEN_CLOUD_BRAIN'
+  | 'MUTE_MIC';
+
+export interface SpokenCommandResult {
+  isCommand: boolean;
+  commandType?: SpokenCommandType;
+  confirmationSpeech?: string;
+}
+
+export function detectSpokenCommand(input: string): SpokenCommandResult {
+  const lower = input.toLowerCase().trim();
+
+  if (
+    lower.includes('files kholo') ||
+    lower.includes('file kholo') ||
+    lower.includes('open files') ||
+    lower.includes('show files') ||
+    lower.includes('project files') ||
+    lower.includes('file explorer')
+  ) {
+    return {
+      isCommand: true,
+      commandType: 'OPEN_FILES',
+      confirmationSpeech: 'Files panel open kar raha hoon.'
+    };
+  }
+
+  if (
+    lower.includes('terminal kholo') ||
+    lower.includes('open terminal') ||
+    lower.includes('show terminal') ||
+    lower.includes('terminal dikhao')
+  ) {
+    return {
+      isCommand: true,
+      commandType: 'OPEN_TERMINAL',
+      confirmationSpeech: 'Terminal open kar diya hai.'
+    };
+  }
+
+  if (
+    lower.includes('preview dikhao') ||
+    lower.includes('preview kholo') ||
+    lower.includes('preview chalao') ||
+    lower.includes('open preview') ||
+    lower.includes('show preview')
+  ) {
+    return {
+      isCommand: true,
+      commandType: 'OPEN_PREVIEW',
+      confirmationSpeech: 'Application preview open kar raha hoon.'
+    };
+  }
+
+  if (
+    lower.includes('workspace kholo') ||
+    lower.includes('local workspace') ||
+    lower.includes('open workspace')
+  ) {
+    return {
+      isCommand: true,
+      commandType: 'OPEN_WORKSPACE',
+      confirmationSpeech: 'Local workspace inspect kar raha hoon.'
+    };
+  }
+
+  if (
+    lower.includes('agent lab') ||
+    lower.includes('agents dikhao') ||
+    lower.includes('agent lab kholo')
+  ) {
+    return {
+      isCommand: true,
+      commandType: 'OPEN_AGENT_LAB',
+      confirmationSpeech: '100 Specialist Agent Lab open kar raha hoon.'
+    };
+  }
+
+  if (
+    lower.includes('cloud brain') ||
+    lower.includes('cloud brain kholo') ||
+    lower.includes('router kholo')
+  ) {
+    return {
+      isCommand: true,
+      commandType: 'OPEN_CLOUD_BRAIN',
+      confirmationSpeech: 'Cloud Brain compute intelligence open kar raha hoon.'
+    };
+  }
+
+  return { isCommand: false };
+}
+
+/**
+ * Prepares raw markdown and code responses for natural conversational TTS
+ * Leaves full text in chat, while reading a concise, natural spoken equivalent
+ */
+export function prepareTextForSpeech(text: string): string {
+  if (!text) return '';
+
+  let clean = text;
+
+  // Replace full code fences with natural verbal summary
+  clean = clean.replace(/```[a-z]*\n[\s\S]*?\n```/gi, ' Code update ready in your workspace. ');
+  clean = clean.replace(/```[\s\S]*?```/g, ' Code snippet provided. ');
+
+  // Replace inline backtick code snippets
+  clean = clean.replace(/`([^`]+)`/g, '$1');
+
+  // Friendly speech for file paths: src/components/Header.tsx -> Header component
+  clean = clean.replace(
+    /(?:src\/[a-zA-Z0-9_\-\/]+\/)?([a-zA-Z0-9_\-]+)\.(tsx|ts|jsx|js|css|json|html)/g,
+    '$1 $2 file'
+  );
+
+  // Strip markdown formatting symbols: headers, bold, italics, tables, bullet points
+  clean = clean
+    .replace(/^#+\s+/gm, '')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/https?:\/\/\S+/g, 'link')
+    .replace(/^[-*•]\s+/gm, '')
+    .replace(/\|/g, ' ')
+    .replace(/---+/g, '');
+
+  // Strip non-speech emojis
+  clean = clean.replace(/[\u{1F300}-\u{1F9FF}]/gu, '');
+
+  // Collapse multiple whitespace
+  clean = clean.replace(/\s+/g, ' ').trim();
+
+  // If the text is very long (e.g. detailed architectural plan), provide a spoken summary cap for voice brevity
+  if (clean.length > 350) {
+    const periodIdx = clean.indexOf('.', 200);
+    if (periodIdx !== -1 && periodIdx < 400) {
+      clean = clean.slice(0, periodIdx + 1);
+    } else {
+      clean = clean.slice(0, 320) + '... Detailed technical plan written in your chat.';
+    }
+  }
+
+  return clean;
+}
+

@@ -60,24 +60,8 @@ export const Header: React.FC = () => {
         </div>
       </div>
 
-      {/* Right: Clean Action Controls [Voice] [Preview] [Files] [Terminal] */}
+      {/* Right: Clean Action Controls [Preview] [Files] [Terminal] */}
       <div className="flex items-center gap-1.5">
-        {/* Unified Voice & Conversational Speech Mode Button */}
-        <button
-          onClick={handleToggleVoice}
-          className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition border ${
-            speechMode === 'speech'
-              ? 'bg-amber-500/15 text-amber-300 border-amber-500/40 shadow-sm shadow-amber-900/20'
-              : 'text-zinc-300 hover:text-white hover:bg-zinc-800/60 border-zinc-800/80 bg-zinc-900/60'
-          }`}
-          title={speechMode === 'speech' ? 'Exit Speech Mode' : 'Enter Conversational Speech Mode'}
-        >
-          <Mic className={`w-3.5 h-3.5 ${speechMode === 'speech' ? 'text-amber-400 animate-pulse' : 'text-zinc-400'}`} />
-          <span className="text-[11px]">Voice</span>
-        </button>
-
-        <div className="h-3 w-[1px] bg-zinc-800 mx-0.5" />
-
         {/* Live Preview / Activity Panel */}
         <button
           onClick={() => togglePreviewPanel()}
@@ -95,14 +79,15 @@ export const Header: React.FC = () => {
         {/* Filesystem Explorer Toggle */}
         <button
           onClick={() => toggleFilePanel()}
-          className={`p-1.5 rounded-md text-xs transition border ${
+          className={`flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition border ${
             isFilePanelOpen
               ? 'bg-zinc-800 text-zinc-100 border-zinc-700/80'
               : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/60 border-transparent'
           }`}
-          title={isFilePanelOpen ? 'Hide Filesystem Panel' : 'Show Filesystem Panel'}
+          title={isFilePanelOpen ? 'Hide Files & Explorer' : 'Show Files & Explorer'}
         >
           <PanelRight className="w-3.5 h-3.5" />
+          <span className="text-[11px] hidden sm:inline">Files</span>
         </button>
 
         {/* Integrated Terminal Toggle */}

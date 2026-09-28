@@ -1,157 +1,82 @@
 import React, { useState, useRef } from 'react';
 import { useAxionStore } from '../store/useAxionStore';
+import { NativeWorkspaceService } from '../services/nativeWorkspace';
 import {
   Folder,
   FolderOpen,
   GitBranch,
   ShieldCheck,
-  Check,
-  Clock,
   HardDrive,
-  FileCode,
-  Terminal,
   ArrowRight,
-  ExternalLink,
-  Plus,
-  RefreshCw,
   X,
-  AlertCircle,
-  Cpu,
   Package,
   CheckCircle2,
-  FileText
+  Trash2,
+  AlertCircle,
+  Cpu
 } from 'lucide-react';
 
 export const LocalWorkspacePage: React.FC = () => {
   const {
+    activeWorkspace,
     workspaces,
     activeWorkspaceId,
     switchWorkspace,
+    mountNativeWorkspace,
+    mountDirectoryHandle,
+    mountFileList,
     openCustomFolder,
-    loadDirectoryFiles,
-    closeWorkspace,
-    files,
+    removeRecentWorkspace,
+    clearRecentWorkspaces,
+    isScanningProject,
+    scanStatusMessage,
     setCurrentTab
   } = useAxionStore();
 
   const [customFolderName, setCustomFolderName] = useState('');
   const [customFolderPath, setCustomFolderPath] = useState('');
   const [isPathModalOpen, setIsPathModalOpen] = useState(false);
-  const [isLoadingDirectory, setIsLoadingDirectory] = useState(false);
-  const [scanStatusMessage, setScanStatusMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const isNativeRuntime = NativeWorkspaceService.isNative();
 
-  const activeWorkspace = workspaces.find((w) => w.id === activeWorkspaceId) || workspaces[0];
-  const fileCount = Object.keys(files).length;
-
-  // Detect project type and dependencies from package.json if present in workspace files
-  const packageJsonContent = files['package.json'];
-  let projectMeta = {
-    name: activeWorkspace?.name || 'Local Project',
-    type: 'React + TypeScript SPA',
-    devCommand: 'npm run dev',
-    dependenciesCount: 0
-  };
-
-  if (packageJsonContent) {
+  // 1. Native / HTML5 File System Directory Picker
+  const handleOpenFolder = async () => {
+    setErrorMessage(null);
     try {
-      const parsed = JSON.parse(packageJsonContent);
-      if (parsed.name) projectMeta.name = parsed.name;
-      if (parsed.dependencies) {
-        projectMeta.dependenciesCount = Object.keys(parsed.dependencies).length;
-        if (parsed.dependencies.next) projectMeta.type = 'Next.js App';
-        else if (parsed.dependencies.react) projectMeta.type = 'React SPA (Vite)';
-        else if (parsed.dependencies.vue) projectMeta.type = 'Vue.js Application';
-        else projectMeta.type = 'Node.js Package';
+      // 1a. If running in genuine Tauri native desktop environment
+      if (isNativeRuntime) {
+        const selected = await NativeWorkspaceService.selectFolderDialog();
+        if (selected) {
+          await mountNativeWorkspace(selected);
+        }
+        return;
       }
-      if (parsed.scripts?.dev) projectMeta.devCommand = 'npm run dev';
-      else if (parsed.scripts?.start) projectMeta.devCommand = 'npm start';
-    } catch (e) {
-      // ignore json parse error
-    }
-  }
 
-  // 1. Native / HTML5 File System Access API Directory Picker
-  const handleOpenNativeDirectory = async () => {
-    if (typeof window !== 'undefined' && 'showDirectoryPicker' in window) {
-      try {
-        setIsLoadingDirectory(true);
-        setScanStatusMessage('Selecting directory...');
-        const dirHandle = await (window as any).showDirectoryPicker({ mode: 'readwrite' });
-        const dirName = dirHandle.name;
-        setScanStatusMessage(`Scanning files in "${dirName}"...`);
-
-        const loadedFiles: Record<string, string> = {};
-        const maxFiles = 300;
-        let count = 0;
-
-        // Recursive reader
-        async function readDir(entryHandle: any, currentPath: string) {
-          if (count >= maxFiles) return;
-
-          for await (const entry of entryHandle.values()) {
-            if (count >= maxFiles) break;
-
-            const entryPath = currentPath ? `${currentPath}/${entry.name}` : entry.name;
-
-            // Skip heavy build / dependency directories
-            if (
-              entry.name === 'node_modules' ||
-              entry.name === '.git' ||
-              entry.name === 'dist' ||
-              entry.name === 'build' ||
-              entry.name === '.next' ||
-              entry.name === '.turbo'
-            ) {
-              continue;
-            }
-
-            if (entry.kind === 'file') {
-              // Read text and code files
-              const validExts = ['.ts', '.tsx', '.js', '.jsx', '.json', '.css', '.html', '.md', '.yml', '.yaml', '.svg'];
-              const isText = validExts.some((ext) => entry.name.endsWith(ext));
-
-              if (isText) {
-                try {
-                  const file = await entry.getFile();
-                  if (file.size < 500000) { // < 500KB
-                    const content = await file.text();
-                    loadedFiles[entryPath] = content;
-                    count++;
-                  }
-                } catch (err) {
-                  console.warn(`Could not read file ${entryPath}`, err);
-                }
-              }
-            } else if (entry.kind === 'directory') {
-              await readDir(entry, entryPath);
-            }
+      // 1b. Try modern HTML5 File System Access API
+      if (typeof window !== 'undefined' && 'showDirectoryPicker' in window) {
+        try {
+          const dirHandle = await (window as any).showDirectoryPicker({ mode: 'readwrite' });
+          if (dirHandle) {
+            await mountDirectoryHandle(dirHandle);
           }
-        }
-
-        await readDir(dirHandle, '');
-
-        if (Object.keys(loadedFiles).length > 0) {
-          loadDirectoryFiles(dirName, `E:\\Projects\\${dirName}`, loadedFiles);
-          setScanStatusMessage(`Successfully indexed ${Object.keys(loadedFiles).length} files.`);
-          setTimeout(() => setScanStatusMessage(null), 3000);
-        } else {
-          // If no files matched, create a project skeleton
-          openCustomFolder(dirName, `E:\\Projects\\${dirName}`);
-        }
-      } catch (err: any) {
-        if (err.name !== 'AbortError') {
-          console.warn('Native folder selection fallback', err);
-          // Fallback to file input
+          return;
+        } catch (pickerErr: any) {
+          if (pickerErr.name === 'AbortError') {
+            // User cancelled picker safely
+            return;
+          }
+          console.warn('showDirectoryPicker error, falling back to file input', pickerErr);
           fileInputRef.current?.click();
+          return;
         }
-      } finally {
-        setIsLoadingDirectory(false);
       }
-    } else {
-      // Fallback for browsers without showDirectoryPicker
+
+      // 1c. Standard fallback
       fileInputRef.current?.click();
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to open directory');
     }
   };
 
@@ -159,64 +84,41 @@ export const LocalWorkspacePage: React.FC = () => {
   const handleFolderInputChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const fileList = e.target.files;
     if (!fileList || fileList.length === 0) return;
+    setErrorMessage(null);
 
-    setIsLoadingDirectory(true);
-    setScanStatusMessage('Parsing folder files...');
-
-    const loadedFiles: Record<string, string> = {};
-    let folderName = 'Uploaded-Project';
-
-    // Get root folder name
-    const firstPath = fileList[0].webkitRelativePath || '';
-    if (firstPath.includes('/')) {
-      folderName = firstPath.split('/')[0];
-    }
-
-    const maxFiles = 300;
-    let count = 0;
-
-    for (let i = 0; i < fileList.length && count < maxFiles; i++) {
-      const file = fileList[i];
-      const relPath = file.webkitRelativePath.replace(`${folderName}/`, '');
-
-      // Skip dependency folders
-      if (
-        relPath.includes('node_modules/') ||
-        relPath.includes('.git/') ||
-        relPath.includes('dist/') ||
-        relPath.includes('.next/')
-      ) {
-        continue;
-      }
-
-      const validExts = ['.ts', '.tsx', '.js', '.jsx', '.json', '.css', '.html', '.md'];
-      if (validExts.some((ext) => file.name.endsWith(ext)) && file.size < 500000) {
-        try {
-          const text = await file.text();
-          loadedFiles[relPath] = text;
-          count++;
-        } catch (err) {}
-      }
-    }
-
-    if (Object.keys(loadedFiles).length > 0) {
-      loadDirectoryFiles(folderName, `E:\\Projects\\${folderName}`, loadedFiles);
-      setScanStatusMessage(`Loaded ${Object.keys(loadedFiles).length} files from ${folderName}.`);
-      setTimeout(() => setScanStatusMessage(null), 3000);
-    }
-
-    setIsLoadingDirectory(false);
+    await mountFileList(fileList);
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   // 3. Manual Path Input Submit
-  const handlePathSubmit = (e: React.FormEvent) => {
+  const handlePathSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!customFolderName.trim()) return;
-    const path = customFolderPath.trim() || `E:\\Projects\\${customFolderName.trim()}`;
-    openCustomFolder(customFolderName.trim(), path);
-    setCustomFolderName('');
-    setCustomFolderPath('');
-    setIsPathModalOpen(false);
+    setErrorMessage(null);
+    const trimmedPath = customFolderPath.trim();
+    const trimmedName = customFolderName.trim();
+
+    if (!trimmedName) {
+      setErrorMessage('Project name is required.');
+      return;
+    }
+
+    if (!trimmedPath) {
+      setErrorMessage('Please specify an absolute folder path on your system.');
+      return;
+    }
+
+    try {
+      if (isNativeRuntime) {
+        await mountNativeWorkspace(trimmedPath);
+      } else {
+        openCustomFolder(trimmedName, trimmedPath);
+      }
+      setCustomFolderName('');
+      setCustomFolderPath('');
+      setIsPathModalOpen(false);
+    } catch (err: any) {
+      setErrorMessage(err.message || 'Failed to establish workspace path');
+    }
   };
 
   return (
@@ -243,24 +145,46 @@ export const LocalWorkspacePage: React.FC = () => {
             </div>
             <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-3">
               <span>LOCAL WORKSPACE</span>
-              <span className="text-xs px-2.5 py-0.5 rounded-full font-mono font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                Active Boundary Guarded
-              </span>
+              {activeWorkspace ? (
+                activeWorkspace.runtimeMode === 'native-tauri' ? (
+                  <span className="text-xs px-2.5 py-0.5 rounded-full font-mono font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Tauri v2 Native (Disk Enforced)
+                  </span>
+                ) : (
+                  <span className="text-xs px-2.5 py-0.5 rounded-full font-mono font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                    Web Sandbox (Browser API)
+                  </span>
+                )
+              ) : (
+                <span className="text-xs px-2.5 py-0.5 rounded-full font-mono font-medium bg-zinc-800 text-zinc-400 border border-zinc-700 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-500" />
+                  No Project Mounted
+                </span>
+              )}
             </h1>
             <p className="text-xs text-zinc-400 mt-1 max-w-xl leading-relaxed">
-              AXION is bound strictly to your local folder. All terminal executions, AST diff generations, and agent operations execute within this directory boundary.
+              {isNativeRuntime
+                ? 'AXION executes with Rust native boundary enforcement in Tauri v2. All path operations are validated against canonical disk roots.'
+                : 'Running in Web Sandbox mode. Folder access uses the browser File System Access API.'}
             </p>
           </div>
 
           <div className="flex items-center gap-2.5">
             <button
-              onClick={handleOpenNativeDirectory}
-              disabled={isLoadingDirectory}
+              onClick={handleOpenFolder}
+              disabled={isScanningProject}
               className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-zinc-100 hover:bg-white text-zinc-900 text-xs font-semibold shadow-sm transition disabled:opacity-50"
             >
               <FolderOpen className="w-4 h-4 text-zinc-900" />
-              <span>{isLoadingDirectory ? 'Scanning...' : 'Open Folder'}</span>
+              <span>{isScanningProject ? 'Scanning...' : 'Open Folder'}</span>
+            </button>
+            <button
+              onClick={() => setIsPathModalOpen(true)}
+              className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-xs font-medium border border-zinc-800 transition"
+            >
+              <span>Mount Path</span>
             </button>
             <button
               onClick={() => setCurrentTab('workspace')}
@@ -276,196 +200,224 @@ export const LocalWorkspacePage: React.FC = () => {
       {/* Status banner if folder is scanning */}
       {scanStatusMessage && (
         <div className="bg-emerald-950/40 border-b border-emerald-800/40 px-6 py-2.5 text-xs text-emerald-300 font-mono flex items-center gap-2 max-w-5xl mx-auto w-full">
-          <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>{scanStatusMessage}</span>
+        </div>
+      )}
+
+      {/* Error banner */}
+      {errorMessage && (
+        <div className="bg-rose-950/40 border-b border-rose-800/40 px-6 py-2.5 text-xs text-rose-300 font-mono flex items-center justify-between gap-2 max-w-5xl mx-auto w-full">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+          <button onClick={() => setErrorMessage(null)} className="text-zinc-400 hover:text-white">
+            <X className="w-3.5 h-3.5" />
+          </button>
         </div>
       )}
 
       {/* Main Content Area */}
       <div className="p-6 flex-1 max-w-5xl w-full mx-auto space-y-6">
-        {/* Active Workspace Showcase Card */}
-        <div className="bg-[#121215] border border-zinc-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
-          <div className="absolute top-0 right-0 w-96 h-96 bg-zinc-800/10 rounded-full blur-3xl pointer-events-none" />
+        {activeWorkspace ? (
+          /* Active Workspace Showcase Card */
+          <div className="bg-[#121215] border border-zinc-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-96 h-96 bg-zinc-800/10 rounded-full blur-3xl pointer-events-none" />
 
-          <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6 relative z-10">
-            <div className="space-y-4 flex-1">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-xl bg-zinc-800/90 border border-zinc-700/80 flex items-center justify-center text-zinc-100 font-mono shadow-md">
-                  <Folder className="w-6 h-6 text-zinc-300" />
-                </div>
-                <div>
-                  <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">
-                    CURRENT WORKSPACE
+            <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6 relative z-10">
+              <div className="space-y-4 flex-1">
+                <div className="flex items-center gap-3">
+                  <div className="w-12 h-12 rounded-xl bg-zinc-800/90 border border-zinc-700/80 flex items-center justify-center text-zinc-100 font-mono shadow-md">
+                    <Folder className="w-6 h-6 text-zinc-300" />
                   </div>
-                  <h2 className="text-xl font-bold text-white font-mono tracking-tight">
-                    {activeWorkspace?.name || 'No Active Workspace'}
-                  </h2>
-                </div>
-              </div>
-
-              {/* Project Meta Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 pt-2">
-                <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800/80">
-                  <div className="text-[10px] font-mono text-zinc-500 uppercase flex items-center gap-1.5">
-                    <HardDrive className="w-3 h-3 text-zinc-400" />
-                    <span>Absolute Path</span>
-                  </div>
-                  <div className="text-xs font-mono text-zinc-200 truncate mt-1" title={activeWorkspace?.path}>
-                    {activeWorkspace?.path || 'Not mounted'}
+                  <div>
+                    <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">
+                      CURRENT ACTIVE WORKSPACE
+                    </div>
+                    <h2 className="text-xl font-bold text-white font-mono tracking-tight">
+                      {activeWorkspace.name}
+                    </h2>
                   </div>
                 </div>
 
-                <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800/80">
-                  <div className="text-[10px] font-mono text-zinc-500 uppercase flex items-center gap-1.5">
-                    <GitBranch className="w-3 h-3 text-zinc-400" />
-                    <span>Git Branch</span>
+                {/* Project Meta Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 pt-2">
+                  <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800/80">
+                    <div className="text-[10px] font-mono text-zinc-500 uppercase flex items-center gap-1.5">
+                      <HardDrive className="w-3 h-3 text-zinc-400" />
+                      <span>Workspace Root</span>
+                    </div>
+                    <div className="text-xs font-mono text-zinc-200 truncate mt-1" title={activeWorkspace.absolutePath}>
+                      {activeWorkspace.absolutePath}
+                    </div>
                   </div>
-                  <div className="text-xs font-mono text-zinc-200 mt-1 flex items-center gap-2">
-                    <span className="font-semibold">{activeWorkspace?.branch || 'main'}</span>
-                    <span className="text-[10px] text-zinc-500">(clean working tree)</span>
-                  </div>
-                </div>
 
-                <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800/80">
-                  <div className="text-[10px] font-mono text-zinc-500 uppercase flex items-center gap-1.5">
-                    <ShieldCheck className="w-3 h-3 text-emerald-400" />
-                    <span>Runtime Status</span>
+                  <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800/80">
+                    <div className="text-[10px] font-mono text-zinc-500 uppercase flex items-center gap-1.5">
+                      <GitBranch className="w-3 h-3 text-zinc-400" />
+                      <span>Git Branch</span>
+                    </div>
+                    <div className="text-xs font-mono text-zinc-200 mt-1 flex items-center gap-2">
+                      <span className="font-semibold">{activeWorkspace.gitBranch || 'main'}</span>
+                      <span className="text-[10px] text-zinc-500">
+                        ({activeWorkspace.gitRepository ? 'Git repo' : 'Local'})
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-xs font-mono text-emerald-400 mt-1 font-semibold flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    <span>Ready & Guarded</span>
-                  </div>
-                </div>
 
-                <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800/80">
-                  <div className="text-[10px] font-mono text-zinc-500 uppercase flex items-center gap-1.5">
-                    <Package className="w-3 h-3 text-zinc-400" />
-                    <span>Project Type</span>
+                  <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800/80">
+                    <div className="text-[10px] font-mono text-zinc-500 uppercase flex items-center gap-1.5">
+                      <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                      <span>Runtime Mode</span>
+                    </div>
+                    <div className="text-xs font-mono text-zinc-200 mt-1 font-semibold flex items-center gap-1.5">
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${
+                          activeWorkspace.runtimeMode === 'native-tauri' ? 'bg-emerald-400' : 'bg-blue-400'
+                        }`}
+                      />
+                      <span>
+                        {activeWorkspace.runtimeMode === 'native-tauri'
+                          ? 'Tauri v2 Native (Disk Enforced)'
+                          : 'Web Sandbox (Browser API)'}
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-xs font-mono text-zinc-200 mt-1 truncate">
-                    {projectMeta.type}
-                  </div>
-                </div>
 
-                <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800/80">
-                  <div className="text-[10px] font-mono text-zinc-500 uppercase flex items-center gap-1.5">
-                    <FileCode className="w-3 h-3 text-zinc-400" />
-                    <span>Indexed Files</span>
+                  <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800/80">
+                    <div className="text-[10px] font-mono text-zinc-500 uppercase flex items-center gap-1.5">
+                      <Package className="w-3 h-3 text-zinc-400" />
+                      <span>Project Type</span>
+                    </div>
+                    <div className="text-xs font-mono text-zinc-200 mt-1 truncate">
+                      {activeWorkspace.projectType || 'Standard Application'}
+                    </div>
                   </div>
-                  <div className="text-xs font-mono text-zinc-200 mt-1">
-                    {fileCount} files in memory index
-                  </div>
-                </div>
 
-                <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800/80">
-                  <div className="text-[10px] font-mono text-zinc-500 uppercase flex items-center gap-1.5">
-                    <Clock className="w-3 h-3 text-zinc-400" />
-                    <span>Last Opened</span>
-                  </div>
-                  <div className="text-xs font-mono text-zinc-200 mt-1">
-                    {activeWorkspace?.lastOpened || 'Just now'}
+                  <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800/80">
+                    <div className="text-[10px] font-mono text-zinc-500 uppercase flex items-center gap-1.5">
+                      <Cpu className="w-3 h-3 text-zinc-400" />
+                      <span>Indexed Files</span>
+                    </div>
+                    <div className="text-xs font-mono text-zinc-200 mt-1">
+                      {activeWorkspace.indexedFileCount} files
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
-
-            {/* Quick Action Buttons */}
-            <div className="flex flex-col gap-2 shrink-0 pt-2 w-full lg:w-48">
-              <button
-                onClick={handleOpenNativeDirectory}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-100 text-xs font-semibold border border-zinc-700 transition shadow-sm"
-              >
-                <FolderOpen className="w-4 h-4 text-zinc-300" />
-                <span>Open Folder</span>
-              </button>
-
-              <button
-                onClick={() => setIsPathModalOpen(true)}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl bg-zinc-850 hover:bg-zinc-800 text-zinc-300 text-xs font-medium border border-zinc-800 transition"
-              >
-                <RefreshCw className="w-3.5 h-3.5 text-zinc-400" />
-                <span>Change Workspace</span>
-              </button>
-
-              <button
-                onClick={closeWorkspace}
-                className="w-full flex items-center justify-center gap-2 px-4 py-2 rounded-xl hover:bg-rose-500/10 text-rose-400 text-xs font-medium border border-transparent hover:border-rose-500/20 transition"
-              >
-                <X className="w-3.5 h-3.5" />
-                <span>Close Workspace</span>
-              </button>
+          </div>
+        ) : (
+          /* Empty Workspace Banner */
+          <div className="p-12 rounded-2xl border border-dashed border-zinc-800 bg-[#121214]/50 text-center space-y-4">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-zinc-800/60 border border-zinc-700/60 flex items-center justify-center text-zinc-400">
+              <FolderOpen className="w-7 h-7" />
             </div>
+            <div>
+              <h3 className="text-base font-semibold text-white">No Project Mounted</h3>
+              <p className="text-xs text-zinc-400 max-w-sm mx-auto mt-1">
+                Open a local project directory to allow AXION to read files, run tests, and execute within your repository boundary.
+              </p>
+            </div>
+            <button
+              onClick={handleOpenFolder}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-100 hover:bg-white text-zinc-900 text-xs font-semibold shadow-sm transition"
+            >
+              <FolderOpen className="w-4 h-4" />
+              <span>Select Project Directory</span>
+            </button>
           </div>
-        </div>
-
-        {/* Security & Boundary Lock Notice */}
-        <div className="p-4 rounded-xl bg-zinc-900/50 border border-zinc-800/80 flex items-start gap-3">
-          <ShieldCheck className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
-          <div className="text-xs text-zinc-400 leading-relaxed space-y-1">
-            <div className="font-semibold text-zinc-200">Local-First Sandbox Protection</div>
-            <p>
-              All agent modifications, AST diff hunks, PowerShell/Bash executions, and snapshot reversions are strictly scoped to <code className="text-zinc-300 font-mono bg-zinc-800 px-1 py-0.5 rounded">{activeWorkspace?.path}</code>. No agent can traverse beyond this workspace root.
-            </p>
-          </div>
-        </div>
+        )}
 
         {/* Recent Workspaces List */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-mono font-semibold text-zinc-400 uppercase tracking-wider">
-              Recent Workspaces ({workspaces.length})
+              Recent Projects ({workspaces.length})
             </h3>
-            <span className="text-[11px] text-zinc-500">Click to switch globally</span>
+            {workspaces.length > 0 && (
+              <button
+                onClick={clearRecentWorkspaces}
+                className="text-[11px] font-mono text-zinc-500 hover:text-rose-400 transition"
+              >
+                Clear Recents
+              </button>
+            )}
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-            {workspaces.map((ws) => {
-              const isActive = ws.id === activeWorkspaceId;
-              return (
-                <div
-                  key={ws.id}
-                  onClick={() => switchWorkspace(ws.id)}
-                  className={`p-4 rounded-xl border cursor-pointer transition flex items-start justify-between gap-3 ${
-                    isActive
-                      ? 'bg-zinc-800/80 border-zinc-600 shadow-md ring-1 ring-zinc-500/30'
-                      : 'bg-[#121214] border-zinc-800/80 hover:border-zinc-700 hover:bg-[#161619]'
-                  }`}
-                >
-                  <div className="flex items-start gap-3 min-w-0">
-                    <div
-                      className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
-                        isActive
-                          ? 'bg-zinc-700 text-white'
-                          : 'bg-zinc-850 text-zinc-400 border border-zinc-800'
-                      }`}
-                    >
-                      <Folder className="w-4 h-4" />
+          {workspaces.length === 0 ? (
+            <div className="p-6 rounded-xl border border-dashed border-zinc-800 text-center text-xs text-zinc-500">
+              No recent projects recorded. Open a project folder to populate this list.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              {workspaces.map((ws) => {
+                const isActive = ws.id === activeWorkspaceId;
+                return (
+                  <div
+                    key={ws.id}
+                    onClick={() => switchWorkspace(ws.id)}
+                    className={`group p-4 rounded-xl border cursor-pointer transition flex items-start justify-between gap-3 ${
+                      isActive
+                        ? 'bg-zinc-800/80 border-zinc-600 shadow-md ring-1 ring-zinc-500/30'
+                        : 'bg-[#121214] border-zinc-800/80 hover:border-zinc-700 hover:bg-[#161619]'
+                    }`}
+                  >
+                    <div className="flex items-start gap-3 min-w-0">
+                      <div
+                        className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                          isActive
+                            ? 'bg-zinc-700 text-white'
+                            : 'bg-zinc-850 text-zinc-400 border border-zinc-800'
+                        }`}
+                      >
+                        <Folder className="w-4 h-4" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-bold text-white font-mono truncate">{ws.name}</span>
+                          {isActive && (
+                            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                              ACTIVE
+                            </span>
+                          )}
+                        </div>
+                        <div className="text-[11px] font-mono text-zinc-500 truncate mt-0.5" title={ws.path}>
+                          {ws.path}
+                        </div>
+                        <div className="flex items-center gap-3 text-[10px] font-mono text-zinc-500 mt-2">
+                          <span>branch: {ws.branch || 'main'}</span>
+                          {ws.indexedFileCount ? (
+                            <>
+                              <span>•</span>
+                              <span>{ws.indexedFileCount} files</span>
+                            </>
+                          ) : null}
+                          <span>•</span>
+                          <span>{ws.lastOpened || 'Recent'}</span>
+                        </div>
+                      </div>
                     </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-white font-mono truncate">{ws.name}</span>
-                        {isActive && (
-                          <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                            ACTIVE
-                          </span>
-                        )}
-                      </div>
-                      <div className="text-[11px] font-mono text-zinc-500 truncate mt-0.5" title={ws.path}>
-                        {ws.path}
-                      </div>
-                      <div className="flex items-center gap-3 text-[10px] font-mono text-zinc-500 mt-2">
-                        <span>branch: {ws.branch}</span>
-                        <span>•</span>
-                        <span>{ws.lastOpened}</span>
-                      </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeRecentWorkspace(ws.id);
+                        }}
+                        className="p-1 text-zinc-500 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition rounded"
+                        title="Remove from Recents"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                      <ArrowRight className="w-4 h-4 text-zinc-500" />
                     </div>
                   </div>
-
-                  <ArrowRight className="w-4 h-4 text-zinc-500 shrink-0" />
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
 
@@ -482,7 +434,7 @@ export const LocalWorkspacePage: React.FC = () => {
 
             <h3 className="text-base font-bold text-white flex items-center gap-2 mb-1">
               <FolderOpen className="w-5 h-5 text-zinc-300" />
-              <span>Change or Mount Workspace</span>
+              <span>Mount Workspace Directory</span>
             </h3>
             <p className="text-xs text-zinc-400 mb-4">
               Enter local folder name and absolute path on your host machine.
@@ -498,7 +450,7 @@ export const LocalWorkspacePage: React.FC = () => {
                   required
                   value={customFolderName}
                   onChange={(e) => setCustomFolderName(e.target.value)}
-                  placeholder="e.g. my-awesome-app"
+                  placeholder="e.g. my-project"
                   className="w-full bg-zinc-900 border border-zinc-700/80 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-500"
                   autoFocus
                 />
@@ -510,9 +462,10 @@ export const LocalWorkspacePage: React.FC = () => {
                 </label>
                 <input
                   type="text"
+                  required
                   value={customFolderPath}
                   onChange={(e) => setCustomFolderPath(e.target.value)}
-                  placeholder="e.g. E:\Projects\my-awesome-app or /home/user/my-awesome-app"
+                  placeholder="e.g. /home/user/my-project or C:\Users\user\my-project"
                   className="w-full bg-zinc-900 border border-zinc-700/80 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-500 font-mono"
                 />
               </div>
