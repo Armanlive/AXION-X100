@@ -805,7 +805,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
     get().addOutputLogEvent('PROCESS', 'WARN', `Process terminated in [${session.name}] via SIGINT (Exit: 130)`);
   },
 
-  // Real Native Process Execution Engine (Phase 5)
+  // Terminal Sandbox / Command Execution Engine (Phase 5 Dev Environment)
   runCommandInSession: async (sessionId, command, origin = 'manual') => {
     const cmd = command.trim();
     if (!cmd) return;
@@ -1575,12 +1575,115 @@ export const useAxionStore = create<AxionState>((set, get) => ({
     });
   },
 
-  switchWorkspace: (workspaceId) => {
+  switchWorkspace: async (workspaceId) => {
     const ws = get().workspaces.find((w) => w.id === workspaceId);
     if (!ws) return;
 
     const prevPath = get().activeWorkspace?.absolutePath || get().projectPath;
 
+    // 1. If running in native Tauri mode or workspace is local native, enforce Rust authorization first
+    if (NativeWorkspaceService.isNative()) {
+      try {
+        set({ isScanningProject: true, scanStatusMessage: `Activating native workspace: ${ws.path}...` });
+        const info = await NativeWorkspaceService.setWorkspaceRoot(ws.path);
+        const nativeFiles = await NativeWorkspaceService.listFiles(10);
+
+        const fileContents: Record<string, string> = {};
+        const filesIndex: ProjectFileEntry[] = [];
+
+        for (const f of nativeFiles) {
+          let content: string | undefined = undefined;
+          let isLoaded = false;
+          if (!f.is_directory && f.size_bytes < 200000 && !isBinaryFile(f.relative_path)) {
+            try {
+              content = await NativeWorkspaceService.readTextFile(f.relative_path);
+              fileContents[f.relative_path] = content;
+              isLoaded = true;
+            } catch (e) {
+              // file unreadable or binary
+            }
+          }
+          filesIndex.push({
+            relativePath: f.relative_path,
+            name: f.name,
+            extension: f.extension,
+            size: f.size_bytes,
+            modifiedTimestamp: f.modified_timestamp_ms,
+            isDirectory: f.is_directory,
+            content,
+            isLoaded
+          });
+        }
+
+        const id = info.name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+        const activeWs: ActiveWorkspace = {
+          id,
+          name: info.name,
+          absolutePath: info.canonical_root,
+          projectType: info.detected_framework,
+          framework: info.detected_framework,
+          packageManager: info.detected_package_manager,
+          gitBranch: info.is_git ? 'main' : '',
+          gitRepository: info.is_git,
+          indexedFileCount: filesIndex.filter((f) => !f.isDirectory).length,
+          selectedAt: new Date().toISOString(),
+          lastOpenedAt: 'Just now',
+          status: 'ready',
+          runtimeMode: 'native-tauri',
+          scripts: {}
+        };
+
+        const firstFilePath = Object.keys(fileContents)[0] || (filesIndex.find((f) => !f.isDirectory)?.relativePath || '');
+        const hasOldSessions = get().terminalSessions.some((s) => s.cwd !== info.canonical_root);
+
+        savePersistedActiveWorkspace(activeWs);
+
+        set({
+          activeWorkspace: activeWs,
+          activeWorkspaceId: id,
+          projectPath: info.canonical_root,
+          files: fileContents,
+          filesIndex,
+          selectedFilePath: firstFilePath,
+          isScanningProject: false,
+          scanStatusMessage: `Switched native workspace to "${info.name}".`,
+          detectedDevServerUrl: null,
+          workspaceSwitchNotice: hasOldSessions ? { previousWorkspace: prevPath, newWorkspace: info.canonical_root } : null,
+          terminalLogs: [
+            ...get().terminalLogs,
+            `> Switched native workspace to canonical root: ${info.canonical_root}`
+          ],
+          auditLogs: [
+            {
+              id: `AUD-${Date.now()}`,
+              timestamp: new Date().toISOString(),
+              actor: 'USER',
+              action: 'WORKSPACE_SELECT',
+              targetPath: info.canonical_root,
+              details: `Switched native workspace to "${info.name}" at canonical root ${info.canonical_root}`,
+              status: 'SUCCESS'
+            },
+            ...get().auditLogs
+          ]
+        });
+
+        setTimeout(() => {
+          if (get().scanStatusMessage?.startsWith('Switched native workspace')) {
+            set({ scanStatusMessage: null });
+          }
+        }, 3000);
+        return;
+      } catch (err: any) {
+        console.error('Failed to switch native workspace root:', err);
+        set({
+          isScanningProject: false,
+          scanStatusMessage: `Failed to switch native workspace: ${err.message || err}`
+        });
+        return;
+      }
+    }
+
+    // 2. Web Sandbox Mode
     const activeWs: ActiveWorkspace = {
       id: ws.id,
       name: ws.name,
@@ -1593,6 +1696,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       indexedFileCount: ws.indexedFileCount || 0,
       selectedAt: new Date().toISOString(),
       lastOpenedAt: 'Just now',
+      runtimeMode: 'web-sandbox',
       status: 'ready'
     };
 
@@ -1612,7 +1716,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       workspaceSwitchNotice: hasOldSessions ? { previousWorkspace: prevPath, newWorkspace: ws.path } : null,
       terminalLogs: [
         ...get().terminalLogs,
-        `> Switched local workspace boundary to: ${ws.path} [Branch: ${ws.branch}]`
+        `> Switched workspace boundary to: ${ws.path} [Branch: ${ws.branch}]`
       ],
       auditLogs: [
         {
@@ -1630,6 +1734,13 @@ export const useAxionStore = create<AxionState>((set, get) => ({
   },
 
   closeWorkspace: () => {
+    // Clear canonical root in Rust state if running in native mode
+    if (NativeWorkspaceService.isNative()) {
+      NativeWorkspaceService.clearWorkspace().catch((e) =>
+        console.warn('Failed to clear native workspace in Rust:', e)
+      );
+    }
+
     savePersistedActiveWorkspace(null);
     set({
       activeWorkspace: null,
@@ -2392,8 +2503,8 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       messages: updatedMessages,
       terminalLogs: [
         ...state.terminalLogs,
-        `> Native Safe Write Verified: ${diff.filePath}`,
-        `> Pre-write snapshot stored: [${diff.taskId}]`
+        `> Memory Buffer Updated (In-Memory Sandbox): ${diff.filePath}`,
+        `> Pre-edit snapshot stored: [${diff.taskId}]`
       ],
       auditLogs: [
         {
@@ -2411,7 +2522,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
           actor: 'SYSTEM',
           action: 'FILE_WRITE',
           targetPath: diff.filePath,
-          details: `Safe atomic write committed to ${diff.filePath}`,
+          details: `In-memory editor buffer updated for ${diff.filePath} [Native atomic write deferred to Phase 2]`,
           status: 'SUCCESS'
         },
         ...state.auditLogs
@@ -2419,12 +2530,12 @@ export const useAxionStore = create<AxionState>((set, get) => ({
     });
 
     get().addOrchestrationActivity(
-      'Disk Write Committed',
-      'Safe Write Pipeline',
-      `File verified and written: ${diff.filePath} [Snapshot: ${diff.taskId}]`
+      'Memory Buffer Updated',
+      'Editor Sandbox',
+      `File buffer updated in memory: ${diff.filePath} [Snapshot: ${diff.taskId}]`
     );
 
-    // Simulated terminal validation
+    // In-memory preview update notification
     setTimeout(() => {
       const validatedMessages = get().messages.map((m) => {
         if (m.taskId === diff.taskId) {
@@ -2437,15 +2548,15 @@ export const useAxionStore = create<AxionState>((set, get) => ({
         messages: validatedMessages,
         terminalLogs: [
           ...s.terminalLogs,
-          '✓ Build passed. Zero TypeScript errors.',
-          '✓ Reality Acceptance Gate: PASS'
+          '> [Sandbox] Buffer diff applied successfully.',
+          '> [Note] Native compiler/PTY verification active in Phase 5.'
         ]
       }));
 
       get().addOrchestrationActivity(
-        'Build Validation',
-        'Code Verification',
-        'Build verified: Zero TypeScript errors. All tests passing.'
+        'Buffer Synchronized',
+        'Editor Sandbox',
+        'In-memory file buffer updated and synchronized with active view.'
       );
     }, 600);
   },

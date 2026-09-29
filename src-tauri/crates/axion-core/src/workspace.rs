@@ -543,6 +543,36 @@ mod tests {
         assert!(matches!(read_err, Err(WorkspaceError::SecurityEscapeViolation { .. })));
     }
 
+    #[cfg(windows)]
+    #[test]
+    fn test_windows_junction_reparse_escape_rejected() {
+        use std::os::windows::fs::symlink_dir;
+
+        let dir = tempdir().expect("Failed to create tempdir");
+        let root = fs::canonicalize(dir.path()).expect("Canonicalize failed");
+
+        let outside_dir = tempdir().expect("Failed to create outside tempdir");
+        let outside_target = outside_dir.path().join("secrets");
+        fs::create_dir_all(&outside_target).expect("Failed to create outside dir");
+        let secret_file = outside_target.join("keys.json");
+        let mut f = File::create(&secret_file).expect("Failed to create key file");
+        writeln!(f, "TOP_SECRET").expect("Write failed");
+
+        let junction_link = root.join("junction_escape");
+        match symlink_dir(&outside_target, &junction_link) {
+            Ok(_) => {
+                let mut mgr = WorkspaceManager::new();
+                mgr.set_workspace_root(&root).expect("Failed to set root");
+
+                let err = mgr.resolve_and_validate_path("junction_escape/keys.json");
+                assert!(matches!(err, Err(WorkspaceError::SecurityEscapeViolation { .. })));
+            }
+            Err(e) => {
+                eprintln!("Skipping junction test (privilege required): {}", e);
+            }
+        }
+    }
+
     #[test]
     fn test_binary_file_detection() {
         let dir = tempdir().expect("Failed to create tempdir");

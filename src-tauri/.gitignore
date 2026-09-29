@@ -1,0 +1,7 @@
+# Rust build artifacts
+target/
+**/target/
+crates/*/target/
+
+# Tauri auto-generated files
+gen/

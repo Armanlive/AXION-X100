@@ -1,0 +1,38 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Production builds
+dist/
+build/
+.next/
+.turbo/
+
+# Rust build artifacts
+target/
+**/target/
+src-tauri/target/
+src-tauri/crates/*/target/
+
+# Tauri generated files
+src-tauri/gen/
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+*.pem
+
+# Editor and OS files
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+.DS_Store
+Thumbs.db
