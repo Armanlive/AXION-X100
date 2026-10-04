@@ -31,6 +31,7 @@ export const PreviewActivityDrawer: React.FC = () => {
     setPreviewActiveTab,
     orchestrationActivities,
     activeWorkspaceId,
+    activeWorkspace,
     workspaces,
     files,
     projectPath,
@@ -57,18 +58,19 @@ export const PreviewActivityDrawer: React.FC = () => {
     return match ? parseInt(match[1], 10) : 5173;
   }, [detectedDevServerUrl]);
 
-  const activeWs = workspaces.find((w) => w.id === activeWorkspaceId) || workspaces[0];
-  const activeAgent = agents.find((a) => a.id === selectedAgentId);
+  const activeWs = activeWorkspace || workspaces?.find((w) => w.id === activeWorkspaceId) || workspaces?.[0] || null;
+  const workspaceName = activeWs?.name || 'Local Workspace';
+  const activeAgent = agents?.find((a) => a.id === selectedAgentId) || null;
 
   // Analyze active workspace files to detect runtime & scripts
-  const packageJsonRaw = files['package.json'];
+  const packageJsonRaw = files ? files['package.json'] : undefined;
   let projectMeta = {
     isWebProject: true,
     runtime: 'React 18 + Vite',
     framework: 'React',
     devCommand: 'npm run dev',
     defaultPort: 5173,
-    title: activeWs?.name || 'AXION Project'
+    title: workspaceName
   };
 
   if (packageJsonRaw) {
@@ -203,7 +205,7 @@ export const PreviewActivityDrawer: React.FC = () => {
               </div>
               <h3 className="text-sm font-semibold text-zinc-200 mb-1">No Web Preview Available</h3>
               <p className="text-xs text-zinc-400 max-w-xs mb-4">
-                No web frontend configuration was detected in <span className="font-mono text-zinc-300">{activeWs.name}</span>.
+                No web frontend configuration was detected in <span className="font-mono text-zinc-300">{workspaceName}</span>.
               </p>
             </div>
           ) : !isServerRunning ? (
@@ -374,7 +376,7 @@ export const PreviewActivityDrawer: React.FC = () => {
                     <div className="w-full max-w-[280px] p-3 rounded-lg bg-zinc-900/60 border border-zinc-800/80 text-left space-y-1.5 text-[11px] font-mono">
                       <div className="flex items-center justify-between text-zinc-400">
                         <span>Workspace:</span>
-                        <span className="text-zinc-200 truncate max-w-[140px]">{activeWs.name}</span>
+                        <span className="text-zinc-200 truncate max-w-[140px]">{workspaceName}</span>
                       </div>
                       <div className="flex items-center justify-between text-zinc-400">
                         <span>Runtime:</span>
@@ -382,7 +384,7 @@ export const PreviewActivityDrawer: React.FC = () => {
                       </div>
                       <div className="flex items-center justify-between text-zinc-400">
                         <span>Indexed Files:</span>
-                        <span className="text-zinc-300">{Object.keys(files).length} files</span>
+                        <span className="text-zinc-300">{files ? Object.keys(files).length : 0} files</span>
                       </div>
                       <div className="flex items-center justify-between text-zinc-400">
                         <span>Diff Safety:</span>
@@ -399,7 +401,14 @@ export const PreviewActivityDrawer: React.FC = () => {
 
               {/* Footer Status */}
               <div className="px-3 py-1.5 border-t border-zinc-800 bg-[#0e0e11] flex items-center justify-between text-[11px] font-mono text-zinc-500">
-                <span>Branch: {activeWs?.branch || 'main'}</span>
+                <span>
+                  Branch:{' '}
+                  {activeWorkspace?.gitBranch ||
+                    (activeWs && 'gitBranch' in activeWs
+                      ? (activeWs as any).gitBranch
+                      : (activeWs as any)?.branch) ||
+                    'main'}
+                </span>
                 <span className="text-emerald-400 flex items-center gap-1">
                   <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
                   HMR Socket: Connected

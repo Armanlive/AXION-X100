@@ -15,6 +15,7 @@ import { DiffViewer } from './components/DiffViewer';
 import { LiveSpeechMode } from './components/LiveSpeechMode';
 import { PreviewActivityDrawer } from './components/PreviewActivityDrawer';
 import { LocalWorkspacePage } from './components/LocalWorkspacePage';
+import { ErrorBoundary } from './components/ErrorBoundary';
 import { X } from 'lucide-react';
 
 export default function App() {
@@ -181,8 +182,16 @@ export default function App() {
                             style={{ width: `${auxPanelWidth}px` }}
                             className="h-full shrink-0 flex overflow-hidden bg-[#0c0c0e] animate-in slide-in-from-right-2 duration-150 border-l border-zinc-800/80"
                           >
-                            {isFilePanelOpen && <CodeFileViewer />}
-                            {isPreviewPanelOpen && <PreviewActivityDrawer />}
+                            {isFilePanelOpen && (
+                              <ErrorBoundary fallbackTitle="File Viewer Unavailable">
+                                <CodeFileViewer />
+                              </ErrorBoundary>
+                            )}
+                            {isPreviewPanelOpen && (
+                              <ErrorBoundary fallbackTitle="Preview & Activity Drawer Unavailable">
+                                <PreviewActivityDrawer />
+                              </ErrorBoundary>
+                            )}
                           </div>
                         </>
                       )}
