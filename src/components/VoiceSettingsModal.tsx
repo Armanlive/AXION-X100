@@ -106,6 +106,43 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ onClose 
             />
           </div>
 
+          {/* Listening Mode Toggle: Push-to-Talk vs Continuous */}
+          <div className="pt-2 border-t border-zinc-800">
+            <div className="flex items-center justify-between mb-2">
+              <div>
+                <div className="text-xs font-semibold text-zinc-200">Listening Mode</div>
+                <div className="text-[10px] text-zinc-500">Controls how AXION listens to your microphone</div>
+              </div>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-800 text-cyan-300 border border-zinc-700">
+                {voiceSettings.listeningMode === 'push-to-talk' ? 'Push-to-Talk' : 'Continuous'}
+              </span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 p-1 rounded-lg bg-zinc-900 border border-zinc-800 text-xs">
+              <button
+                type="button"
+                onClick={() => updateVoiceSettings({ listeningMode: 'push-to-talk' })}
+                className={`py-1.5 px-2 rounded-md font-medium transition ${
+                  voiceSettings.listeningMode === 'push-to-talk'
+                    ? 'bg-zinc-800 text-cyan-300 border border-cyan-500/40 shadow-xs'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                Push-to-Talk
+              </button>
+              <button
+                type="button"
+                onClick={() => updateVoiceSettings({ listeningMode: 'continuous' })}
+                className={`py-1.5 px-2 rounded-md font-medium transition ${
+                  voiceSettings.listeningMode !== 'push-to-talk'
+                    ? 'bg-zinc-800 text-cyan-300 border border-cyan-500/40 shadow-xs'
+                    : 'text-zinc-400 hover:text-zinc-200'
+                }`}
+              >
+                Continuous
+              </button>
+            </div>
+          </div>
+
           {/* Auto Speak Toggle */}
           <div className="pt-2 border-t border-zinc-800 flex items-center justify-between">
             <div>

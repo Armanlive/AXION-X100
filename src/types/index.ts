@@ -296,10 +296,11 @@ export interface CloudProvider {
   apiKey?: string;
   isConnected: boolean;
   isPrimary: boolean;
-  status: 'connected' | 'disconnected' | 'rate_limited' | 'error';
+  status: 'connected' | 'disconnected' | 'rate_limited' | 'error' | 'not_configured' | 'untested';
   tier: 'free' | 'paid';
   models: string[];
   latencyMs?: number;
+  pingResult?: string;
 }
 
 // Voice & Speech Mode
@@ -322,6 +323,7 @@ export interface VoiceSettings {
   voiceName: string;
   speed: number;
   autoSpeak: boolean;
+  listeningMode: 'push-to-talk' | 'continuous';
 }
 
 // Orchestration Activity

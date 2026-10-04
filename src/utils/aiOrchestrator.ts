@@ -5,8 +5,8 @@ import { normalizeVoiceInput } from './voiceNormalizer';
 // Initialize Gemini Client
 function getGeminiClient(): GoogleGenAI | null {
   try {
+    // Prototype browser-side client key (not secure secret storage; native credential vault is planned for future phase)
     const apiKey =
-      (typeof process !== 'undefined' && process.env?.GEMINI_API_KEY) ||
       (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_GEMINI_API_KEY) ||
       '';
     return new GoogleGenAI(apiKey ? { apiKey } : {});
@@ -70,7 +70,7 @@ export async function orchestrateAIRequest(
     callbacks.onCommandIntent?.(commandIntent);
   }
 
-  // Determine autonomous specialist delegation
+  // Determine autonomous specialist delegation (Rule-based / Keyword preview)
   let delegatedAgent = context.activeAgent;
   if (context.isBossLocked) {
     const promptLower = userPrompt.toLowerCase();
@@ -86,29 +86,30 @@ export async function orchestrateAIRequest(
   }
 
   callbacks.onReasoningStep?.({
-    agent: 'Boss Agent',
-    action: `Routing intent to ${delegatedAgent.name} (${delegatedAgent.category})`,
+    agent: 'Boss Agent (Rule-based Preview)',
+    action: `Routing intent to ${delegatedAgent.name} (${delegatedAgent.category}) via rule-based matcher`,
     status: 'completed'
   });
 
   callbacks.onReasoningStep?.({
     agent: delegatedAgent.name,
-    action: `Contextualizing in workspace: ${context.workspaceName}`,
+    action: `Contextualizing in workspace: ${context.workspaceName} (read-only)`,
     status: 'pending'
   });
 
   // Prepare system instruction
   const fileKeys = Object.keys(context.files).slice(0, 15);
-  const systemInstruction = `You are AXION-X100, an elite engineering AI assistant and autonomous local workspace orchestrator.
-You are currently operating as: ${delegatedAgent.name} (${delegatedAgent.role}) with Boss Agent Autonomous Routing.
+  const systemInstruction = `You are AXION-X100, an engineering AI assistant operating in browser prototype mode with rule-based specialist delegation.
+You are currently responding as: ${delegatedAgent.name} (${delegatedAgent.role}).
 Active Local Workspace: "${context.workspaceName}" at "${context.workspacePath}".
 Known Indexed Files: ${fileKeys.join(', ')}.
 
 Guidelines:
 1. Provide accurate, production-grade, concise software engineering advice, code changes, and explanations.
-2. If the user spoke in Hindi or Hinglish (e.g. "Bhai project check karo"), respond naturally in warm, professional English or polite bilingual developer Hinglish matching their tone, while keeping code and commands strictly standard.
-3. Keep answers direct, actionable, well-formatted in Markdown.
-4. When suggesting code, write clean, modular, and type-safe code snippets with filenames where appropriate.`;
+2. Important constraint: You operate in a read-only environment. Do NOT claim you executed native terminal commands, modified files on disk, or performed environment verification.
+3. If the user spoke in Hindi or Hinglish (e.g. "Bhai project check karo"), respond naturally in warm, professional English or polite bilingual developer Hinglish matching their tone, while keeping code and commands strictly standard.
+4. Keep answers direct, actionable, well-formatted in Markdown.
+5. When suggesting code, write clean, modular, and type-safe code snippets with filenames where appropriate.`;
 
   // Format conversational history
   const contents: any[] = [];
@@ -131,7 +132,7 @@ Guidelines:
 
   if (client) {
     try {
-      // Use Gemini Flash model for ultra-fast, zero-cost streaming responses
+      // Use Gemini Flash model for fast, zero-cost streaming responses
       const responseStream = await client.models.generateContentStream({
         model: 'gemini-2.5-flash',
         contents,
@@ -169,9 +170,9 @@ I have reviewed your request:
 
 ${norm.language !== 'en' ? `*Intent parsed:* *${norm.normalizedEnglish}*\n\n` : ''}
 ### Next Steps:
-1. **Workspace Boundary**: Connected to \`${context.workspacePath}\`
+1. **Workspace Boundary**: Connected to \`${context.workspacePath}\` (read-only Phase 1)
 2. **Specialist Assigned**: ${delegatedAgent.name} (${delegatedAgent.category})
-3. **Execution Plan**: Verified local environment constraints and dependencies.
+3. **Execution Plan**: Local environment verification is unavailable until native execution support is implemented.
 
 Feel free to ask follow-up questions, request specific code edits, or use voice commands like *"Files kholo"* or *"Terminal kholo"*.`;
 

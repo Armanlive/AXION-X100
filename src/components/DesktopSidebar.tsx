@@ -21,7 +21,9 @@ import {
   Search,
   Settings,
   Sparkles,
-  ExternalLink
+  ExternalLink,
+  Radio,
+  Hand
 } from 'lucide-react';
 
 export const DesktopSidebar: React.FC = () => {
@@ -41,7 +43,9 @@ export const DesktopSidebar: React.FC = () => {
     activeWorkspaceId,
     computeMode,
     chatSearchQuery,
-    setChatSearchQuery
+    setChatSearchQuery,
+    voiceSettings,
+    updateVoiceSettings
   } = useAxionStore();
 
   const [isDevToolsOpen, setIsDevToolsOpen] = useState(false);
@@ -143,6 +147,49 @@ export const DesktopSidebar: React.FC = () => {
             <Mic className="w-3.5 h-3.5 text-cyan-400" />
             <span>Voice</span>
           </button>
+        </div>
+
+        {/* 2b. Voice Listening Mode Settings Toggle (Push-to-Talk vs Continuous) */}
+        <div className="mt-2.5 p-2 rounded-lg bg-[#111114] border border-zinc-800/80 shadow-xs">
+          <div className="flex items-center justify-between text-[10px] font-mono text-zinc-400 mb-1.5 px-0.5">
+            <span className="flex items-center gap-1.5 font-semibold text-zinc-300">
+              <Radio className="w-3 h-3 text-cyan-400" />
+              <span>Voice Listening</span>
+            </span>
+            <span className="text-[9px] font-mono uppercase px-1.5 py-0.5 rounded bg-zinc-850 text-cyan-300/90 border border-zinc-750">
+              {voiceSettings.listeningMode === 'push-to-talk' ? 'Push-to-Talk' : 'Continuous'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-2 gap-1 p-0.5 rounded-md bg-zinc-950 border border-zinc-850 text-[11px] font-medium">
+            <button
+              onClick={() => updateVoiceSettings({ listeningMode: 'push-to-talk' })}
+              className={`py-1.5 px-1.5 rounded flex items-center justify-center gap-1.5 transition ${
+                voiceSettings.listeningMode === 'push-to-talk'
+                  ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/40 font-semibold shadow-xs'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+              title="Push-to-Talk: Only listens when holding talk button or Spacebar"
+              aria-label="Switch to Push-to-Talk voice mode"
+            >
+              <Hand className="w-3 h-3 shrink-0" />
+              <span className="truncate text-[10px]">Push-to-Talk</span>
+            </button>
+
+            <button
+              onClick={() => updateVoiceSettings({ listeningMode: 'continuous' })}
+              className={`py-1.5 px-1.5 rounded flex items-center justify-center gap-1.5 transition ${
+                voiceSettings.listeningMode !== 'push-to-talk'
+                  ? 'bg-cyan-500/15 text-cyan-300 border border-cyan-500/40 font-semibold shadow-xs'
+                  : 'text-zinc-500 hover:text-zinc-300'
+              }`}
+              title="Continuous: Listens continuously in real-time"
+              aria-label="Switch to Continuous voice mode"
+            >
+              <Mic className="w-3 h-3 shrink-0" />
+              <span className="truncate text-[10px]">Continuous</span>
+            </button>
+          </div>
         </div>
       </div>
 

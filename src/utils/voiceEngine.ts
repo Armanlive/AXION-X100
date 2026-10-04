@@ -352,7 +352,6 @@ export class VoiceEngine {
   private state: VoiceState = 'idle';
   private events: VoiceEngineEvents = {};
   private active = false;
-  private speakingAnimTimer: any = null;
 
   constructor(events?: VoiceEngineEvents) {
     if (events) this.events = events;
@@ -360,7 +359,7 @@ export class VoiceEngine {
     this.synthesisAdapter = new SpeechSynthesisAdapter();
     this.audioAnalyser = new MicrophoneAudioAnalyser();
 
-    // Wire microphone sound level to event callback
+    // Wire genuine microphone sound level to event callback
     this.audioAnalyser.setOnLevel((level) => {
       if (this.state === 'listening' || this.state === 'transcribing') {
         this.events.onAudioLevel?.(level);
@@ -370,9 +369,10 @@ export class VoiceEngine {
     this.synthesisAdapter.setOnSpeakingChange((speaking) => {
       if (speaking) {
         this.setState('speaking');
-        this.startSpeakingAudioSimulation();
+        // Do not emit synthetic audio levels. Living Core uses its designed CSS speaking rhythm.
+        this.events.onAudioLevel?.(0);
       } else {
-        this.stopSpeakingAudioSimulation();
+        this.events.onAudioLevel?.(0);
         if (this.active) {
           // Resume listening after speaking
           this.setState('listening');
@@ -406,26 +406,6 @@ export class VoiceEngine {
         this.events.onError?.(err);
       }
     );
-  }
-
-  private startSpeakingAudioSimulation() {
-    this.stopSpeakingAudioSimulation();
-    let tick = 0;
-    this.speakingAnimTimer = setInterval(() => {
-      tick += 0.2;
-      // Synthesize rhythmic conversational cadence
-      const base = 0.25 + 0.35 * Math.sin(tick * 3) + 0.25 * Math.sin(tick * 7);
-      const level = Math.max(0.1, Math.min(0.9, Math.abs(base)));
-      this.events.onAudioLevel?.(level);
-    }, 50);
-  }
-
-  private stopSpeakingAudioSimulation() {
-    if (this.speakingAnimTimer) {
-      clearInterval(this.speakingAnimTimer);
-      this.speakingAnimTimer = null;
-      this.events.onAudioLevel?.(0);
-    }
   }
 
   public isSupported(): boolean {
@@ -488,7 +468,7 @@ export class VoiceEngine {
 
   public interrupt() {
     this.synthesisAdapter.cancel();
-    this.stopSpeakingAudioSimulation();
+    this.events.onAudioLevel?.(0);
     if (this.active) {
       this.setState('listening');
       this.recognitionAdapter.start();
@@ -499,7 +479,7 @@ export class VoiceEngine {
 
   public destroy() {
     this.active = false;
-    this.stopSpeakingAudioSimulation();
+    this.events.onAudioLevel?.(0);
     this.recognitionAdapter.stop();
     this.synthesisAdapter.cancel();
     this.audioAnalyser.stop();

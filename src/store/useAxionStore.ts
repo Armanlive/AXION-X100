@@ -72,6 +72,26 @@ const STORAGE_KEY_CHATS = 'axion_chat_sessions_v1';
 const STORAGE_KEY_PROVIDERS = 'axion_cloud_providers_v1';
 const STORAGE_KEY_WORKSPACE = 'axion_active_workspace_v1';
 const STORAGE_KEY_BOSS_LOCKED = 'axion_boss_locked_v1';
+const STORAGE_KEY_VOICE_SETTINGS = 'axion_voice_settings_v1';
+
+function loadInitialVoiceSettings(): VoiceSettings {
+  const defaults: VoiceSettings = {
+    language: 'auto',
+    voiceName: 'Default Voice',
+    speed: 1.05,
+    autoSpeak: true,
+    listeningMode: 'continuous'
+  };
+  if (typeof window !== 'undefined') {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_VOICE_SETTINGS);
+      if (saved) {
+        return { ...defaults, ...JSON.parse(saved) };
+      }
+    } catch (e) {}
+  }
+  return defaults;
+}
 
 function loadInitialBossLocked(): boolean {
   if (typeof window !== 'undefined') {
@@ -366,12 +386,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
   speechMode: 'chat',
   speechState: 'idle',
   isMicMuted: false,
-  voiceSettings: {
-    language: 'auto',
-    voiceName: 'Default Voice',
-    speed: 1.05,
-    autoSpeak: true
-  },
+  voiceSettings: loadInitialVoiceSettings(),
   audioTtsEnabled: true,
   voiceTranscript: '',
 
@@ -2174,13 +2189,22 @@ export const useAxionStore = create<AxionState>((set, get) => ({
   testProviderConnection: async (providerId) => {
     const provider = get().cloudProviders.find((p) => p.id === providerId);
     if (!provider) return false;
-    await new Promise((r) => setTimeout(r, 600));
+    await new Promise((r) => setTimeout(r, 400));
     set((s) => ({
       cloudProviders: s.cloudProviders.map((p) =>
-        p.id === providerId ? { ...p, latencyMs: Math.floor(Math.random() * 80) + 40, status: 'connected' } : p
-      )
+        p.id === providerId
+          ? {
+              ...p,
+              pingResult: 'UNAVAILABLE — Real provider connectivity testing is not implemented yet.'
+            }
+          : p
+      ),
+      terminalLogs: [
+        ...s.terminalLogs,
+        `> [PROVIDER TEST — SIMULATION] ${provider.name}: UNAVAILABLE — Real provider connectivity testing is not implemented yet. No connection was tested.`
+      ]
     }));
-    return true;
+    return false;
   },
 
   // Live Conversational Speech Mode
@@ -2198,7 +2222,15 @@ export const useAxionStore = create<AxionState>((set, get) => ({
   toggleMicMute: () => set((s) => ({ isMicMuted: !s.isMicMuted })),
   toggleAudioTts: () => set((s) => ({ audioTtsEnabled: !s.audioTtsEnabled })),
   updateVoiceSettings: (settings) =>
-    set((s) => ({ voiceSettings: { ...s.voiceSettings, ...settings } })),
+    set((s) => {
+      const updated = { ...s.voiceSettings, ...settings };
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(STORAGE_KEY_VOICE_SETTINGS, JSON.stringify(updated));
+        } catch (e) {}
+      }
+      return { voiceSettings: updated };
+    }),
   interruptSpeech: () => {
     if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
       window.speechSynthesis.cancel();
@@ -2724,15 +2756,15 @@ export const useAxionStore = create<AxionState>((set, get) => ({
           timestamp: new Date().toISOString(),
           actor: 'SYSTEM',
           action: 'MODEL_FAILOVER',
-          details: 'Zero-Cost Router: Gemini 429 Rate Limit simulated -> Automated failover to OpenRouter Free',
+          details: '[SIMULATION — NO REAL PROVIDER EVENT] Example rate-limit condition on Gemini 2.0 Flash -> Example fallback route to OpenRouter Free',
           status: 'WARN'
         },
         ...state.auditLogs
       ],
       terminalLogs: [
         ...state.terminalLogs,
-        '> [ROUTER] Rate limit 429 detected on Gemini 2.0 Flash.',
-        '> [FAILOVER] Switched provider to OpenRouter Free (Llama 3.3 70B) at $0.00 cost.'
+        '> [SIMULATION — NO REAL PROVIDER EVENT] Example rate-limit condition: 429 response simulated for Gemini 2.0 Flash.',
+        '> [SIMULATION] Example fallback route: Switched provider route to OpenRouter Free (Llama 3.3 70B).'
       ]
     });
   },

@@ -729,27 +729,27 @@ export const WorkspaceChat: React.FC = () => {
                           <div className="flex items-center gap-2 pb-2 border-b border-zinc-800">
                             <span className="text-base">👑</span>
                             <div>
-                              <div className="text-xs font-bold text-white tracking-tight">BOSS AGENT</div>
-                              <div className="text-[10px] text-zinc-400">Automatic orchestration is active.</div>
+                              <div className="text-xs font-bold text-white tracking-tight">BOSS AGENT (RULE-BASED PREVIEW)</div>
+                              <div className="text-[10px] text-zinc-400">Rule-based specialist matching is active.</div>
                             </div>
                           </div>
 
                           <div className="space-y-1.5 py-1 text-[11px] text-zinc-300 font-sans">
                             <div className="flex items-center gap-2 text-emerald-400">
                               <Check className="w-3.5 h-3.5 shrink-0" />
-                              <span>Automatically choose specialists</span>
+                              <span>Rule-based specialist matching</span>
                             </div>
                             <div className="flex items-center gap-2 text-emerald-400">
                               <Check className="w-3.5 h-3.5 shrink-0" />
-                              <span>Automatically choose models</span>
+                              <span>Selects zero-cost model tier</span>
                             </div>
                             <div className="flex items-center gap-2 text-emerald-400">
                               <Check className="w-3.5 h-3.5 shrink-0" />
-                              <span>Automatic free-tier failover</span>
+                              <span>Read-only workspace context</span>
                             </div>
-                            <div className="flex items-center gap-2 text-emerald-400">
-                              <Check className="w-3.5 h-3.5 shrink-0" />
-                              <span>Context-aware routing</span>
+                            <div className="flex items-center gap-2 text-zinc-500">
+                              <span className="w-3.5 h-3.5 flex items-center justify-center text-[10px]">•</span>
+                              <span className="italic">Native execution planned for Phase 2</span>
                             </div>
                           </div>
 

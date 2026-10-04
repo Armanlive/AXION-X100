@@ -13,7 +13,9 @@ import {
   RefreshCw,
   Sparkles,
   Layers,
-  ArrowRight
+  ArrowRight,
+  Hand,
+  Radio
 } from 'lucide-react';
 
 export const LiveSpeechMode: React.FC = () => {
@@ -46,6 +48,59 @@ export const LiveSpeechMode: React.FC = () => {
   const [audioLevel, setAudioLevel] = useState(0);
   const [isPermissionDenied, setIsPermissionDenied] = useState(false);
   const [runtimeWarning, setRuntimeWarning] = useState<string | null>(null);
+
+  const isPushToTalk = voiceSettings?.listeningMode === 'push-to-talk';
+  const [isPttActive, setIsPttActive] = useState(false);
+
+  // Push-to-Talk activation handlers
+  const startPtt = () => {
+    if (isMicMuted || speechState === 'speaking' || speechState === 'thinking') return;
+    setIsPttActive(true);
+    globalVoiceEngine.startListening();
+    setSpeechState('listening');
+  };
+
+  const stopPtt = () => {
+    setIsPttActive(false);
+    globalVoiceEngine.stopListening();
+    if (speechState === 'listening') {
+      setSpeechState('idle');
+    }
+  };
+
+  // Keyboard Spacebar listener for Push-to-Talk
+  useEffect(() => {
+    if (!isPushToTalk) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space' && !e.repeat) {
+        const target = e.target as HTMLElement | null;
+        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+          return;
+        }
+        e.preventDefault();
+        startPtt();
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        const target = e.target as HTMLElement | null;
+        if (target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable)) {
+          return;
+        }
+        e.preventDefault();
+        stopPtt();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, [isPushToTalk, isMicMuted, speechState]);
 
   // Live session timer (e.g. 01:45)
   const [sessionSeconds, setSessionSeconds] = useState(0);
@@ -137,7 +192,7 @@ export const LiveSpeechMode: React.FC = () => {
       }
     });
 
-    if (!isMicMuted) {
+    if (!isMicMuted && !isPushToTalk) {
       globalVoiceEngine.startListening();
     }
   };
@@ -160,7 +215,7 @@ export const LiveSpeechMode: React.FC = () => {
 
     if (cmd.confirmationSpeech && audioTtsEnabled) {
       globalVoiceEngine.speak(cmd.confirmationSpeech, () => {
-        if (isComponentMounted.current && !isMicMuted) {
+        if (isComponentMounted.current && !isMicMuted && !isPushToTalk) {
           globalVoiceEngine.startListening();
         }
       });
@@ -177,14 +232,20 @@ export const LiveSpeechMode: React.FC = () => {
     };
   }, []);
 
-  // Handle Mute / Unmute
+  // Handle Mute / Unmute / Mode Switching
   useEffect(() => {
+    if (isPushToTalk) {
+      if (!isPttActive) {
+        globalVoiceEngine.stopListening();
+      }
+      return;
+    }
     if (isMicMuted) {
       globalVoiceEngine.stopListening();
     } else if (speechState !== 'speaking' && speechState !== 'thinking') {
       globalVoiceEngine.startListening();
     }
-  }, [isMicMuted]);
+  }, [isMicMuted, isPushToTalk, isPttActive]);
 
   // Read latest message via TTS when bot responds in voice mode
   const lastBotMessage = useMemo(() => {
@@ -200,7 +261,7 @@ export const LiveSpeechMode: React.FC = () => {
 
     if (cleanToSpeak) {
       globalVoiceEngine.speak(cleanToSpeak, () => {
-        if (isComponentMounted.current && !isMicMuted) {
+        if (isComponentMounted.current && !isMicMuted && !isPushToTalk) {
           globalVoiceEngine.startListening();
         }
       });
@@ -282,7 +343,15 @@ export const LiveSpeechMode: React.FC = () => {
         <div className="flex-1 flex flex-col items-center justify-center w-full px-4">
           <AxionLivingCore
             state={
-              speechState === 'listening'
+              isPushToTalk
+                ? isPttActive
+                  ? 'listening'
+                  : speechState === 'thinking' || speechState === 'transcribing'
+                  ? 'thinking'
+                  : speechState === 'speaking'
+                  ? 'speaking'
+                  : 'idle'
+                : speechState === 'listening'
                 ? 'listening'
                 : speechState === 'thinking' || speechState === 'transcribing'
                 ? 'thinking'
@@ -303,7 +372,7 @@ export const LiveSpeechMode: React.FC = () => {
                   ? 'bg-cyan-400 animate-pulse'
                   : speechState === 'thinking' || speechState === 'transcribing'
                   ? 'bg-sky-400 animate-ping'
-                  : speechState === 'listening'
+                  : isPttActive || speechState === 'listening'
                   ? 'bg-emerald-400 animate-pulse'
                   : 'bg-zinc-500'
               }`}
@@ -315,11 +384,36 @@ export const LiveSpeechMode: React.FC = () => {
                 ? 'Speaking…'
                 : speechState === 'thinking' || speechState === 'transcribing'
                 ? 'Thinking…'
-                : speechState === 'listening'
-                ? 'Listening…'
-                : 'Ready'}
+                : isPttActive || speechState === 'listening'
+                ? isPushToTalk
+                  ? 'Listening (PTT Active)…'
+                  : 'Listening…'
+                : isPushToTalk
+                ? 'Push-to-Talk (Hold Space or Button to Speak)'
+                : 'Continuous (Real-time Listening)'}
             </span>
           </div>
+
+          {/* Interactive Push-to-Talk Control Button */}
+          {isPushToTalk && (
+            <div className="mt-3 flex flex-col items-center gap-1.5 animate-in fade-in duration-200">
+              <button
+                onMouseDown={startPtt}
+                onMouseUp={stopPtt}
+                onTouchStart={startPtt}
+                onTouchEnd={stopPtt}
+                className={`px-6 py-2.5 rounded-full text-xs font-mono font-bold tracking-wider uppercase transition-all shadow-lg flex items-center gap-2 select-none active:scale-95 ${
+                  isPttActive
+                    ? 'bg-cyan-400 text-black shadow-cyan-500/40 ring-4 ring-cyan-500/30'
+                    : 'bg-zinc-800 hover:bg-zinc-750 text-zinc-200 border border-zinc-700 hover:border-cyan-500/40'
+                }`}
+              >
+                <Hand className={`w-4 h-4 ${isPttActive ? 'animate-bounce' : 'text-cyan-400'}`} />
+                <span>{isPttActive ? 'Release to Send' : 'Hold to Speak (or Space)'}</span>
+              </button>
+              <span className="text-[10px] text-zinc-500 font-mono">Tip: Press & hold Spacebar anywhere to speak</span>
+            </div>
+          )}
 
           {/* 2. Status & Live Transcript */}
           <VoiceTranscript

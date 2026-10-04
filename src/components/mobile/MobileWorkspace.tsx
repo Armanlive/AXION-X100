@@ -23,6 +23,7 @@ export const MobileWorkspace: React.FC = () => {
     workspaces,
     activeWorkspaceId,
     switchWorkspace,
+    mountNativeWorkspace,
     mountDirectoryHandle,
     mountFileList,
     isScanningProject,
@@ -40,6 +41,16 @@ export const MobileWorkspace: React.FC = () => {
   const handleOpenFolder = async () => {
     setErrorMessage(null);
     try {
+      // 1. Authoritative Native Workspace Selection (Tauri v2 Desktop runtime)
+      if (isNativeRuntime) {
+        const selected = await NativeWorkspaceService.selectFolderDialog();
+        if (selected) {
+          await mountNativeWorkspace(selected);
+        }
+        return;
+      }
+
+      // 2. Browser Environment Fallbacks (Read-Only)
       if (typeof window !== 'undefined' && 'showDirectoryPicker' in window) {
         try {
           const dirHandle = await (window as any).showDirectoryPicker({ mode: 'read' });
@@ -126,7 +137,7 @@ export const MobileWorkspace: React.FC = () => {
 
               <button
                 onClick={handleOpenFolder}
-                className="px-2.5 py-1.5 min-h-[38px] rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 border border-zinc-700/80 shrink-0 transition"
+                className="px-3 py-2 min-h-[44px] min-w-[44px] rounded-lg bg-zinc-800 hover:bg-zinc-700 text-xs font-medium text-zinc-200 border border-zinc-700/80 shrink-0 transition flex items-center justify-center"
               >
                 Change
               </button>

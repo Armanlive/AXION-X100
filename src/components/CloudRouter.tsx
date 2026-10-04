@@ -175,26 +175,29 @@ export const CloudRouter: React.FC = () => {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div className="p-4 rounded-xl bg-[#121215] border border-zinc-800 space-y-3">
                 <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-semibold text-zinc-200">Connected Free Providers</h4>
+                  <h4 className="text-xs font-semibold text-zinc-200">Provider Configurations</h4>
                   <button onClick={() => setActiveSection('providers')} className="text-xs text-emerald-400 hover:underline">
                     Manage Providers →
                   </button>
                 </div>
                 <div className="space-y-2">
-                  {cloudProviders
-                    .filter((p) => p.isConnected)
-                    .map((p) => (
-                      <div key={p.id} className="flex items-center justify-between p-2.5 rounded-lg bg-zinc-900/60 border border-zinc-800 text-xs">
-                        <div className="flex items-center gap-2">
-                          <span>{p.icon}</span>
-                          <span className="font-medium text-white">{p.name}</span>
-                        </div>
-                        <span className="text-[10px] font-mono text-emerald-400 flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                          {p.latencyMs}ms
-                        </span>
+                  {cloudProviders.map((p) => (
+                    <div key={p.id} className="flex items-center justify-between p-2.5 rounded-lg bg-zinc-900/60 border border-zinc-800 text-xs">
+                      <div className="flex items-center gap-2">
+                        <span>{p.icon}</span>
+                        <span className="font-medium text-white">{p.name}</span>
                       </div>
-                    ))}
+                      <span className="text-[10px] font-mono text-zinc-400 flex items-center gap-1">
+                        {p.isConnected ? (
+                          <span className="text-emerald-400 font-medium">Configured (Demo)</span>
+                        ) : p.status === 'untested' ? (
+                          <span className="text-zinc-500">Untested</span>
+                        ) : (
+                          <span className="text-zinc-500">Not configured</span>
+                        )}
+                      </span>
+                    </div>
+                  ))}
                 </div>
               </div>
 
@@ -314,7 +317,7 @@ export const CloudRouter: React.FC = () => {
                               : 'bg-zinc-800 text-zinc-500'
                           }`}
                         >
-                          ● {model.status.toUpperCase()}
+                          ● {model.status === 'healthy' ? 'AVAILABLE' : model.status.toUpperCase()}
                         </span>
                       </div>
 
@@ -351,7 +354,9 @@ export const CloudRouter: React.FC = () => {
                       </div>
                       <div className="flex justify-between">
                         <span className="text-zinc-500">Latency:</span>
-                        <span className="text-zinc-300">{model.latencyMs}ms</span>
+                        <span className="text-zinc-400 font-mono text-[11px]">
+                          {model.isLocal ? 'Local bus (untested)' : 'Not tested'}
+                        </span>
                       </div>
 
                       <div className="pt-2">
@@ -416,10 +421,16 @@ export const CloudRouter: React.FC = () => {
                         className={`text-[10px] font-mono px-2 py-0.5 rounded-full ${
                           provider.isConnected
                             ? 'bg-emerald-950/60 text-emerald-400 border border-emerald-800/40'
-                            : 'bg-zinc-800 text-zinc-500'
+                            : provider.status === 'untested'
+                            ? 'bg-zinc-800 text-zinc-400 border border-zinc-750'
+                            : 'bg-zinc-900 text-zinc-500 border border-zinc-800'
                         }`}
                       >
-                        {provider.isConnected ? '● Connected' : '○ Not Connected'}
+                        {provider.isConnected
+                          ? 'Configured (Demo)'
+                          : provider.status === 'untested'
+                          ? 'Untested'
+                          : 'Not Configured'}
                       </span>
                     </div>
 
@@ -436,35 +447,49 @@ export const CloudRouter: React.FC = () => {
                         <span className="text-zinc-500">Available Models:</span>
                         <span className="text-zinc-300">{provider.models.length} models</span>
                       </div>
+                      <div className="flex justify-between">
+                        <span className="text-zinc-500">Connectivity:</span>
+                        <span className="text-zinc-400">
+                          {provider.pingResult ? 'Not verified' : 'Untested'}
+                        </span>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="pt-2 border-t border-zinc-800 flex items-center justify-between gap-2">
-                    {provider.isConnected ? (
-                      <>
-                        <button
-                          onClick={() => handleTestConnection(provider.id)}
-                          disabled={isTestingProvider === provider.id}
-                          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-xs font-mono border border-zinc-750 transition"
-                        >
-                          <RefreshCw className={`w-3 h-3 ${isTestingProvider === provider.id ? 'animate-spin' : ''}`} />
-                          <span>Test Ping</span>
-                        </button>
+                  <div className="space-y-2 pt-2 border-t border-zinc-800">
+                    <div className="flex items-center justify-between gap-2">
+                      <button
+                        onClick={() => handleTestConnection(provider.id)}
+                        disabled={isTestingProvider === provider.id}
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-xs font-mono border border-zinc-750 transition"
+                      >
+                        <RefreshCw className={`w-3 h-3 ${isTestingProvider === provider.id ? 'animate-spin' : ''}`} />
+                        <span>Test Ping</span>
+                      </button>
+
+                      {provider.isConnected ? (
                         <button
                           onClick={() => disconnectProvider(provider.id)}
                           className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-red-950/40 text-zinc-400 hover:text-red-400 text-xs font-mono border border-zinc-800 transition"
                         >
                           Disconnect
                         </button>
-                      </>
-                    ) : (
-                      <button
-                        onClick={() => setKeyInputModalProvider(provider.id)}
-                        className="w-full flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium border border-zinc-700 transition"
-                      >
-                        <Key className="w-3 h-3" />
-                        <span>Configure API Key</span>
-                      </button>
+                      ) : (
+                        <button
+                          onClick={() => setKeyInputModalProvider(provider.id)}
+                          className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium border border-zinc-700 transition"
+                        >
+                          <Key className="w-3 h-3" />
+                          <span>Configure API Key</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {provider.pingResult && (
+                      <div className="p-2 rounded-lg bg-zinc-900/90 border border-zinc-800 text-[11px] font-mono text-amber-400/90 flex items-start gap-1.5">
+                        <AlertTriangle className="w-3.5 h-3.5 shrink-0 text-amber-400 mt-0.5" />
+                        <span>{provider.pingResult}</span>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -478,9 +503,9 @@ export const CloudRouter: React.FC = () => {
           <div className="space-y-4 animate-in fade-in duration-150">
             <div className="flex items-center justify-between p-4 rounded-xl bg-[#121215] border border-zinc-800">
               <div>
-                <h3 className="text-xs font-bold text-white">Dynamic Failover Simulator</h3>
+                <h3 className="text-xs font-bold text-white">Dynamic Failover Simulator (Demo)</h3>
                 <p className="text-xs text-zinc-400 mt-0.5">
-                  Verify that rate limits instantly trigger fallback to the next available free provider.
+                  [SIMULATION] Demonstrate how the model router handles rate limit errors and simulates fallback routes.
                 </p>
               </div>
               <button
@@ -496,9 +521,9 @@ export const CloudRouter: React.FC = () => {
               <h4 className="text-xs font-semibold text-zinc-200 uppercase font-mono">Routing Priority Hierarchy</h4>
               <div className="space-y-2">
                 {[
-                  { priority: 1, name: 'Gemini 2.0 Flash (Zero-Cost Free Tier)', status: 'Primary Active Route', cost: '$0.00' },
+                  { priority: 1, name: 'Gemini 2.0 Flash (Zero-Cost Free Tier)', status: 'Priority 1 (Targeted Free Route)', cost: '$0.00' },
                   { priority: 2, name: 'OpenRouter Free Gateway (Qwen 2.5 Coder / Llama 3.3)', status: 'Standby Failover', cost: '$0.00' },
-                  { priority: 3, name: 'Ollama Local Compute (Offline Fallback)', status: 'Offline Standby', cost: '$0.00' },
+                  { priority: 3, name: 'Ollama Local Compute (Offline Fallback)', status: 'Offline Standby (Untested)', cost: '$0.00' },
                   { priority: 4, name: 'Paid Models (Anthropic / OpenAI)', status: 'Requires Explicit User Unlock', cost: 'User Authorized Only' }
                 ].map((item) => (
                   <div key={item.priority} className="flex items-center justify-between p-3 rounded-lg bg-zinc-900/70 border border-zinc-800 text-xs">
