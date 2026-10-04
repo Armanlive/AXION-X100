@@ -558,6 +558,8 @@ mod tests {
         let mut f = File::create(&secret_file).expect("Failed to create key file");
         writeln!(f, "TOP_SECRET").expect("Write failed");
 
+        let junction_link = root.join("junction_escape");
+
         // On Windows, try creating an NTFS junction via `cmd /C mklink /J` first
         // (which does not require elevated privileges on Windows), falling back to symlink_dir.
         let created = {

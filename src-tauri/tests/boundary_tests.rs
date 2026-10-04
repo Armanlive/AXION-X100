@@ -153,6 +153,60 @@ fn test_integration_workspace_switch_invalidates_previous_boundary() {
 }
 
 #[test]
+fn test_integration_workspace_switch_failure_preserves_previous_authorization() {
+    let dir_a = tempdir().expect("Failed to create dir_a");
+    let root_a = fs::canonicalize(dir_a.path()).expect("Canonicalize A failed");
+    let file_a = root_a.join("valid_a.txt");
+    let mut f = File::create(&file_a).expect("Create A failed");
+    writeln!(f, "Content A").expect("Write failed");
+
+    let mut mgr = WorkspaceManager::new();
+    mgr.set_workspace_root(&root_a).expect("Set root A ok");
+    assert_eq!(mgr.get_workspace_info().unwrap().name, root_a.file_name().unwrap().to_string_lossy());
+
+    // Switch to nonexistent path B fails
+    let fake_b = root_a.join("nonexistent_directory_b_12345");
+    let switch_err = mgr.set_workspace_root(&fake_b);
+    assert!(switch_err.is_err());
+
+    // Invariant: Root A must remain authorized and functional
+    assert_eq!(mgr.get_workspace_info().unwrap().name, root_a.file_name().unwrap().to_string_lossy());
+    let read_a = mgr.read_text_file("valid_a.txt").expect("Read A ok");
+    assert!(read_a.contains("Content A"));
+}
+
+#[test]
+fn test_integration_workspace_rollback_restores_authorization() {
+    let dir_a = tempdir().expect("Failed to create dir_a");
+    let root_a = fs::canonicalize(dir_a.path()).expect("Canonicalize A failed");
+    let file_a = root_a.join("doc_a.txt");
+    let mut f = File::create(&file_a).expect("Create A failed");
+    writeln!(f, "Data A").expect("Write failed");
+
+    let dir_b = tempdir().expect("Failed to create dir_b");
+    let root_b = fs::canonicalize(dir_b.path()).expect("Canonicalize B failed");
+    let file_b = root_b.join("doc_b.txt");
+    let mut f2 = File::create(&file_b).expect("Create B failed");
+    writeln!(f2, "Data B").expect("Write failed");
+
+    let mut mgr = WorkspaceManager::new();
+    // 1. Authorize A
+    mgr.set_workspace_root(&root_a).expect("Set root A ok");
+    // 2. Authorize B
+    mgr.set_workspace_root(&root_b).expect("Set root B ok");
+    assert_eq!(mgr.get_workspace_info().unwrap().name, root_b.file_name().unwrap().to_string_lossy());
+    // 3. Rollback to A
+    mgr.set_workspace_root(&root_a).expect("Rollback to root A ok");
+    assert_eq!(mgr.get_workspace_info().unwrap().name, root_a.file_name().unwrap().to_string_lossy());
+    let read_a = mgr.read_text_file("doc_a.txt").expect("Read A ok");
+    assert!(read_a.contains("Data A"));
+
+    // Doc B access through A boundary is now rejected as security violation
+    let file_b_str = file_b.to_string_lossy().to_string();
+    assert!(matches!(mgr.resolve_and_validate_path(&file_b_str), Err(WorkspaceError::SecurityEscapeViolation { .. })));
+}
+
+#[test]
 fn test_integration_clear_workspace_clears_authorization() {
     let dir = tempdir().expect("Failed to create tempdir");
     let root = fs::canonicalize(dir.path()).expect("Canonicalize failed");

@@ -109,6 +109,15 @@ function loadInitialChatSessions(): { sessions: ChatSession[]; activeId: string 
   return { sessions: [defaultSession], activeId: defaultSession.id };
 }
 
+export interface WorkspaceSyncError {
+  phase: 'set_root' | 'initialization' | 'rollback' | 'clear';
+  attemptedWorkspace: string;
+  previousWorkspace?: string;
+  message: string;
+  rustStateUncertain: boolean;
+  timestamp: string;
+}
+
 interface AxionState {
   currentTab: TabType;
   projectPath: string;
@@ -133,6 +142,7 @@ interface AxionState {
   filesIndex: ProjectFileEntry[];
   isScanningProject: boolean;
   scanStatusMessage: string | null;
+  workspaceSyncError: WorkspaceSyncError | null;
   isFolderPickerOpen: boolean;
 
   // Cloud Brain & Compute Providers
@@ -247,6 +257,7 @@ interface AxionState {
   clearRecentWorkspaces: () => void;
   setIsFolderPickerOpen: (open: boolean) => void;
   setScanStatusMessage: (msg: string | null) => void;
+  clearWorkspaceSyncError: () => void;
   refreshWorkspaceFiles: () => Promise<void>;
   createNewFile: (relativePath: string, initialContent?: string) => Promise<boolean>;
   createNewFolder: (relativeFolderPath: string) => Promise<boolean>;
@@ -340,6 +351,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
   activeWorkspaceId: persistedActiveWs?.id || '',
   isScanningProject: false,
   scanStatusMessage: null,
+  workspaceSyncError: null,
   isFolderPickerOpen: false,
 
   // Code Editor & Unsaved Drafts
@@ -847,129 +859,29 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       command: sanitizedCmd,
       cwd,
       origin,
-      details: `Execution started [SIMULATED]: "${sanitizedCmd}" in ${cwd}`,
-      status: 'SUCCESS'
+      details: `Terminal command received in session [${session.name}]: "${sanitizedCmd}"`,
+      status: 'WARN'
     };
 
     set((s) => ({ auditLogs: [startAuditLog, ...s.auditLogs] }));
 
-    // Command Parser & Simulated Output Generator
-    const lower = cmd.toLowerCase();
     let response = '';
-    let exitCode = 0;
-    let detectedUrl: string | null = null;
-    let isDevServer = false;
-    let filesMayChange = couldModifyWorkspaceFiles(cmd);
+    const analysis = analyzeCommand(cmd);
 
-    // Give small async delay to emulate process execution lifecycle
-    await new Promise((r) => setTimeout(r, lower.includes('build') || lower.includes('install') ? 500 : 150));
-
-    const activeWs = get().activeWorkspace;
-    const filesIndex = get().filesIndex;
-    const files = get().files;
-    const fileCount = filesIndex.length > 0 ? filesIndex.filter((f) => !f.isDirectory).length : Object.keys(files).length;
-    const branchName = activeWs?.gitBranch || 'main';
-
-    if (lower === 'npm run dev' || lower === 'npm start' || lower === 'vite' || lower === 'next dev' || lower === 'bun dev') {
-      isDevServer = true;
-      const detectedPort = 5173;
-      detectedUrl = `http://localhost:${detectedPort}/`;
-      response = `[SIMULATED DEV SERVER - Terminal Sandbox]\n[NOTICE: Native dev server PTY lifecycle is deferred to Phase 5]\n  VITE v6.1.0  ready in 184 ms (Simulated)\n\n  ➜  Local:   http://localhost:${detectedPort}/\n  ➜  Network: use --host to expose\n[Vite Sandbox] Simulated dev server started. Real dev server PTY lifecycle active in Phase 5.\n[AXION] Connected to active workspace: ${cwd}`;
-      
-      set({ detectedDevServerUrl: detectedUrl });
-      get().addOutputLogEvent('DEV_SERVER', 'INFO', `[SIMULATED] Development server simulated at ${detectedUrl} (Real process PTY deferred to Phase 5)`, 0, `Process simulated in ${cwd}`);
-    } else if (lower === 'npm run build' || lower === 'npm build' || lower === 'tsc && vite build' || lower === 'vite build') {
-      const errHeaderFile = files['src/components/Header.tsx'];
-      const hasIntentionalError = errHeaderFile && errHeaderFile.includes('project: number;');
-
-      if (hasIntentionalError) {
-        exitCode = 2;
-        response = `[SIMULATED BUILD - Terminal Sandbox]\n> tsc && vite build\nsrc/components/Header.tsx:14:7 - error TS2322: Type 'string' is not assignable to type 'number'.\n\nFound 1 error in src/components/Header.tsx:14\n[BUILD FAILED] Simulated TypeScript compiler returned exit code 2.`;
-        get().addOutputLogEvent('BUILD', 'ERROR', '[SIMULATED] Build failed with TS2322 in src/components/Header.tsx:14', 2);
-      } else {
-        response = `[SIMULATED BUILD - Terminal Sandbox]\n> tsc && vite build\n[SIMULATION NOTICE: Native build process execution is deferred to Phase 5. Zero real disk build files emitted.]\n✓ ${fileCount} workspace modules processed in in-memory simulation.\n(Simulated bundle: dist/index.html, dist/assets/index.js)`;
-        get().addOutputLogEvent('BUILD', 'INFO', `[SIMULATED] Build command completed in sandbox. Native compiler execution deferred to Phase 5.`, 0);
-      }
-    } else if (lower === 'tsc --noemit' || lower === 'npm run typecheck' || lower === 'npm run check') {
-      const errHeaderFile = files['src/components/Header.tsx'];
-      const hasIntentionalError = errHeaderFile && errHeaderFile.includes('project: number;');
-      if (hasIntentionalError) {
-        exitCode = 2;
-        response = `[SIMULATED TYPECHECK - Terminal Sandbox]\nsrc/components/Header.tsx:14:7 - error TS2322: Type 'string' is not assignable to type 'number'.\nFound 1 error.`;
-        get().addOutputLogEvent('LINT', 'ERROR', '[SIMULATED] TypeScript check found simulated error (TS2322)', 2);
-      } else {
-        response = `[SIMULATED TYPECHECK - Terminal Sandbox]\n[SIMULATION NOTICE: Native tsc execution is deferred to Phase 5.]\n✓ Simulated tsc check across ${fileCount} workspace files.`;
-        get().addOutputLogEvent('LINT', 'INFO', '[SIMULATED] TypeScript check processed in terminal sandbox (Phase 5 native execution pending).', 0);
-      }
-    } else if (lower === 'npm test' || lower === 'vitest' || lower === 'npm run test') {
-      response = `[SIMULATED TEST RUNNER - Terminal Sandbox]\n[SIMULATION NOTICE: Native test runner execution is deferred to Phase 5. No tests were executed on disk.]\nSimulated vitest suite: 3 mock test files processed.`;
-      get().addOutputLogEvent('TEST', 'INFO', '[SIMULATED] Test command processed in sandbox. Native test execution deferred to Phase 5.', 0);
-    } else if (lower === 'npm run lint' || lower === 'eslint .') {
-      response = `[SIMULATED LINT - Terminal Sandbox]\n[SIMULATION NOTICE: Native ESLint execution is deferred to Phase 5.]\nSimulated lint check across ${fileCount} files completed.`;
-      get().addOutputLogEvent('LINT', 'INFO', '[SIMULATED] Lint check processed in sandbox.', 0);
-    } else if (lower.startsWith('npm install') || lower.startsWith('npm i') || lower.startsWith('pnpm add') || lower.startsWith('yarn add')) {
-      const pkg = cmd.split(' ').slice(2).join(' ') || 'all dependencies';
-      response = `[SIMULATED PACKAGE INSTALL - Terminal Sandbox]\n[SIMULATION NOTICE: Native package manager execution is deferred to Phase 5. No packages were installed on disk.]\nSimulated installation of ${pkg}`;
-      get().addOutputLogEvent('PROCESS', 'INFO', `[SIMULATED] Package install processed in sandbox: ${pkg}`, 0);
-    } else if (lower === 'git status') {
-      const dirtyKeys = Object.keys(get().unsavedFileChanges);
-      if (dirtyKeys.length > 0) {
-        response = `[SIMULATED GIT - Workspace Boundary View]\n(Native Git CLI execution is deferred to Phase 5)\nOn branch ${branchName}\nChanges not staged for commit:\n  (use "git add <file>..." to update what will be committed)\n${dirtyKeys.map((k) => `\tmodified:   ${k}`).join('\n')}\n\nno changes added to commit (use "git add")`;
-      } else {
-        response = `[SIMULATED GIT - Workspace Boundary View]\n(Native Git CLI execution is deferred to Phase 5)\nOn branch ${branchName}\nYour branch is up to date with 'origin/${branchName}'.\n\nChanges staged for commit: none\nWorking tree clean (active workspace boundary enforced)`;
-      }
-    } else if (lower === 'git branch' || lower === 'git branch -a') {
-      response = `[SIMULATED GIT]\n* ${branchName}\n  origin/${branchName}`;
-    } else if (lower.startsWith('git log')) {
-      response = `[SIMULATED GIT - Mock Log (Phase 5 git log pending)]\ncommit 7e91a0c (HEAD -> ${branchName})\nAuthor: AXION Boss Agent <boss@axion.local>\nDate:   ${new Date().toDateString()} 10:14:02\n\n    feat: integrate native workspace terminal execution & safety gates\n\ncommit 3a42d1f\nAuthor: Developer <dev@local.workspace>\nDate:   Yesterday 18:22:10\n\n    chore: init workspace structure for ${activeWs?.name || 'project'}`;
-    } else if (lower === 'pwd') {
-      response = cwd;
-    } else if (lower === 'ls' || lower === 'dir') {
-      if (filesIndex.length > 0) {
-        const topLevel = filesIndex
-          .map((f) => f.relativePath.split('/')[0])
-          .filter((val, idx, self) => self.indexOf(val) === idx);
-        response = `Mode                Length Name\n----                ------ ----\n${topLevel.map((name) => `d----         4096 ${name}`).join('\n')}`;
-      } else {
-        const fileList = Object.keys(files);
-        response = `Mode                Length Name\n----                ------ ----\n${fileList.map((f) => `-a---         ${files[f]?.length || 1024} ${f}`).join('\n')}`;
-      }
-    } else if (lower.startsWith('cat ') || lower.startsWith('type ')) {
-      const targetRel = cmd.slice(cmd.indexOf(' ') + 1).trim();
-      const content = files[targetRel] ?? files[targetRel.replace(/\\/g, '/')];
-      if (content !== undefined) {
-        response = content;
-      } else {
-        response = `cat: ${targetRel}: No such file or directory in workspace`;
-        exitCode = 1;
-      }
-    } else if (lower.startsWith('echo ')) {
-      response = cmd.slice(5);
-    } else if (lower === 'node -v' || lower === 'node --version') {
-      response = 'v20.18.0 (Container Node)';
-    } else if (lower === 'npm -v' || lower === 'npm --version') {
-      response = '10.8.2';
-    } else if (lower === 'git --version') {
-      response = 'git version 2.44.0 [Simulated View - Native Git CLI in Phase 5]';
-    } else if (lower === 'python --version' || lower === 'python -v') {
-      response = 'Python 3.12.3';
-    } else if (lower === 'cargo --version') {
-      response = 'cargo 1.78.0';
-    } else if (lower === 'opencode status' || lower === 'opencode') {
-      response = `OpenCode CLI v0.4.1 (Autonomous Engineering Agent CLI)\nStatus: ACTIVE\nActive Broker: Local Zero-Cost Policy ($0.00)\nPrimary Model: Gemini 2.0 Flash (Free)\nWorkspace CWD: ${cwd}\nBoss Agent: ${state.isBossLocked ? 'LOCKED (Autonomous)' : 'UNLOCKED (Manual)'}`;
-    } else if (lower === 'gemini' || lower === 'gemini --version' || lower === 'gemini status') {
-      response = `Gemini CLI v1.2.0\nDefault Provider: Google AI Studio Direct ($0.00 free tier)\nModel: gemini-2.0-flash\nStatus: Connected`;
-    } else if (lower === 'help') {
-      response = `AXION Integrated Terminal Commands [SIMULATED SANDBOX]:\n  npm run dev       Start simulated development server (detects URL & connects preview)\n  npm run build     Validate simulated build pipeline\n  npm test          Run simulated test runner\n  npm run lint      Run simulated ESLint verification\n  git status        Show working tree and branch status\n  git branch        List git branches\n  git log           Show recent commit history\n  ls / dir          List workspace files and folders\n  pwd               Print active workspace directory\n  cat <path>        Display content of file\n  node -v / npm -v  Display runtime version\n  opencode status   Check autonomous engineering agent status\n  clear / cls       Clear terminal window\n\n(NOTICE: Native process PTY execution is implemented in Phase 5)`;
+    if (analysis.isDangerous) {
+      response = `[SIMULATION — NO COMMAND EXECUTED] This command would require safety approval once native terminal execution is implemented.\nCommand: "${sanitizedCmd}"\nRisk: ${analysis.riskReason || 'Potentially destructive filesystem operation'}\n(Native terminal execution deferred to Phase 5. No command was executed.)`;
+      get().addOutputLogEvent(
+        'SECURITY',
+        'WARN',
+        `[SIMULATION — NO COMMAND EXECUTED] Dangerous command flagged: "${sanitizedCmd}"`
+      );
     } else {
-      // Analyze if invalid command or general shell command
-      const analysis = analyzeCommand(cmd);
-      if (analysis.isDangerous) {
-        response = `[DANGEROUS COMMAND EXECUTED] ${sanitizedCmd}\nRisk: ${analysis.riskReason || 'Destructive file operation'}\nExit code: 0 (Executed under user override)`;
-        get().addOutputLogEvent('SECURITY', 'WARN', `Executed dangerous command: ${sanitizedCmd}`, 0);
-      } else {
-        response = `[axion-terminal sandbox] Executed: ${sanitizedCmd}\nCommand finished with exit code 0. [Native PTY execution active in Phase 5]`;
-      }
+      response = `[UNAVAILABLE] Native terminal execution is not implemented yet. No command was executed.`;
+      get().addOutputLogEvent(
+        'PROCESS',
+        'INFO',
+        `[UNAVAILABLE] Native terminal execution is not implemented yet. No command was executed: "${sanitizedCmd}"`
+      );
     }
 
     const finishTime = Date.now();
@@ -978,9 +890,8 @@ export const useAxionStore = create<AxionState>((set, get) => ({
 
     const finalLogs = [
       ...session.logs,
-      `> ${sanitizedCmd} [SIMULATED]`,
-      response,
-      `[SIMULATED] Process exited with code ${exitCode} (${durationMs}ms)`
+      `> ${sanitizedCmd}`,
+      response
     ];
 
     set((s) => ({
@@ -992,7 +903,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
               logs: finalLogs,
               startedAt,
               finishedAt,
-              lastExitCode: exitCode,
+              lastExitCode: undefined,
               durationMs,
               activeProcessName: undefined
             }
@@ -1004,25 +915,18 @@ export const useAxionStore = create<AxionState>((set, get) => ({
           id: `AUD-${finishTime}-finish`,
           timestamp: new Date(finishTime).toISOString(),
           actor: origin === 'boss-agent' ? 'BOSS_AGENT' : origin === 'specialist-agent' ? 'SPECIALIST_AGENT' : 'USER',
-          action: exitCode === 0 ? 'COMMAND_FINISHED' : 'COMMAND_FAILED',
+          action: 'COMMAND_REJECTED',
           command: sanitizedCmd,
           cwd,
           origin,
-          exitCode,
+          exitCode: undefined,
           durationMs,
-          details: `Session [${session.name}] finished "${sanitizedCmd}" [Exit: ${exitCode}] in ${durationMs}ms`,
-          status: exitCode === 0 ? 'SUCCESS' : 'WARN'
+          details: `Session [${session.name}] "${sanitizedCmd}": native terminal execution is not implemented yet. No command was executed.`,
+          status: 'BLOCKED'
         },
         ...s.auditLogs
       ]
     }));
-
-    // If files may have changed, trigger debounced workspace refresh
-    if (filesMayChange) {
-      setTimeout(() => {
-        get().refreshWorkspaceFiles().catch(() => {});
-      }, 300);
-    }
   },
 
   clearSessionLogs: (sessionId) => {
@@ -1123,10 +1027,13 @@ export const useAxionStore = create<AxionState>((set, get) => ({
 
   // Real Local Workspace Management
   mountNativeWorkspace: async (canonicalPath: string) => {
+    let rootSwitchedInRust = false;
     try {
       set({ isScanningProject: true, scanStatusMessage: `Connecting to native workspace root: ${canonicalPath}...` });
 
       const info = await NativeWorkspaceService.setWorkspaceRoot(canonicalPath);
+      rootSwitchedInRust = true;
+
       const nativeFiles = await NativeWorkspaceService.listFiles(10);
 
       const fileContents: Record<string, string> = {};
@@ -1205,6 +1112,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
         selectedFilePath: firstFilePath,
         isScanningProject: false,
         scanStatusMessage: `Native Workspace "${info.name}" active (${activeWs.indexedFileCount} files).`,
+        workspaceSyncError: null,
         terminalLogs: [
           ...get().terminalLogs,
           `> Established native Tauri workspace root: ${info.canonical_root}`,
@@ -1230,11 +1138,37 @@ export const useAxionStore = create<AxionState>((set, get) => ({
         }
       }, 4000);
     } catch (err: any) {
-      console.error('Failed to mount native workspace', err);
-      set({
-        isScanningProject: false,
-        scanStatusMessage: `Native Mount Error: ${err.message || 'Unknown error'}`
-      });
+      console.error('Failed to mount native workspace:', err);
+      if (rootSwitchedInRust) {
+        try {
+          await NativeWorkspaceService.clearWorkspace();
+          set({
+            isScanningProject: false,
+            scanStatusMessage: `Native Mount Error: ${err.message || 'Initialization failed'}. Rust authorization was safely cleared.`,
+            workspaceSyncError: null
+          });
+        } catch (clearErr: any) {
+          console.error('FATAL: First workspace emergency clear failed!', clearErr);
+          const fatalError: WorkspaceSyncError = {
+            phase: 'clear',
+            attemptedWorkspace: canonicalPath,
+            message: `CRITICAL: Native mount of "${canonicalPath}" failed during file indexing (${err.message || err}), and emergency clear_workspace also failed (${clearErr.message || clearErr}). Rust authorization may still be active.`,
+            rustStateUncertain: true,
+            timestamp: new Date().toISOString()
+          };
+          set({
+            isScanningProject: false,
+            scanStatusMessage: `FATAL: Native mount initialization failed and clear failed. Rust authorization state is uncertain. Recovery required: ${clearErr.message || clearErr}`,
+            workspaceSyncError: fatalError
+          });
+          throw new Error(fatalError.message);
+        }
+      } else {
+        set({
+          isScanningProject: false,
+          scanStatusMessage: `Native Mount Error: ${err.message || 'Unknown error'}`
+        });
+      }
       throw err;
     }
   },
@@ -1686,9 +1620,64 @@ export const useAxionStore = create<AxionState>((set, get) => ({
             try {
               console.warn(`Rolling back Rust workspace root to previous workspace: ${prevPath}`);
               await NativeWorkspaceService.setWorkspaceRoot(prevPath);
-            } catch (rollbackErr) {
-              console.error('Rollback to previous workspace failed. Clearing Rust authorization for safety.', rollbackErr);
-              await NativeWorkspaceService.clearWorkspace().catch(() => {});
+              set({
+                isScanningProject: false,
+                scanStatusMessage: `Failed to initialize workspace "${ws.name}": ${err.message || err}. Successfully rolled back authorization to "${prevActiveWs.name}".`,
+                workspaceSyncError: null
+              });
+              return;
+            } catch (rollbackErr: any) {
+              console.error('Rollback to previous workspace failed. Attempting to clear Rust authorization for safety.', rollbackErr);
+              try {
+                await NativeWorkspaceService.clearWorkspace();
+                savePersistedActiveWorkspace(null);
+                set({
+                  activeWorkspace: null,
+                  activeWorkspaceId: '',
+                  projectPath: '',
+                  files: {},
+                  filesIndex: [],
+                  selectedFilePath: '',
+                  isScanningProject: false,
+                  scanStatusMessage: `Switch to "${ws.name}" and rollback to "${prevActiveWs.name}" both failed. Rust workspace authorization was safely cleared.`,
+                  workspaceSyncError: {
+                    phase: 'clear',
+                    attemptedWorkspace: ws.path,
+                    previousWorkspace: prevPath,
+                    message: `Switch to "${ws.path}" failed (${err.message || err}), and rollback to "${prevPath}" failed (${rollbackErr.message || rollbackErr}). Rust authorization was safely cleared.`,
+                    rustStateUncertain: false,
+                    timestamp: new Date().toISOString()
+                  }
+                });
+                return;
+              } catch (clearErr: any) {
+                console.error('FATAL: clear_workspace failed after failed switch and failed rollback!', clearErr);
+                const fatalError: WorkspaceSyncError = {
+                  phase: 'clear',
+                  attemptedWorkspace: ws.path,
+                  previousWorkspace: prevPath,
+                  message: `CRITICAL: Workspace switch to "${ws.path}" failed (${err.message || err}), rollback to "${prevPath}" failed (${rollbackErr.message || rollbackErr}), and emergency clear_workspace also failed (${clearErr.message || clearErr}). Rust authorization state is uncertain. Recovery required.`,
+                  rustStateUncertain: true,
+                  timestamp: new Date().toISOString()
+                };
+                const desyncedWs: ActiveWorkspace = {
+                  ...prevActiveWs,
+                  status: 'error',
+                  name: `[DESYNC ERROR] ${prevActiveWs.name}`
+                };
+                set({
+                  activeWorkspace: desyncedWs,
+                  isScanningProject: false,
+                  scanStatusMessage: `FATAL: Workspace synchronization failure. Rust authorization state is uncertain. Recovery required: ${clearErr.message || clearErr}`,
+                  workspaceSyncError: fatalError
+                });
+                throw new Error(fatalError.message);
+              }
+            }
+          } else {
+            // First workspace activation (no previous workspace A)
+            try {
+              await NativeWorkspaceService.clearWorkspace();
               savePersistedActiveWorkspace(null);
               set({
                 activeWorkspace: null,
@@ -1698,12 +1687,26 @@ export const useAxionStore = create<AxionState>((set, get) => ({
                 filesIndex: [],
                 selectedFilePath: '',
                 isScanningProject: false,
-                scanStatusMessage: `Workspace switch and rollback both failed. Workspace disconnected for safety: ${err.message || err}`
+                scanStatusMessage: `Activation of workspace "${ws.name}" failed during initialization: ${err.message || err}. Rust authorization was safely cleared.`,
+                workspaceSyncError: null
               });
               return;
+            } catch (clearErr: any) {
+              console.error('FATAL: First workspace emergency clear failed!', clearErr);
+              const fatalError: WorkspaceSyncError = {
+                phase: 'clear',
+                attemptedWorkspace: ws.path,
+                message: `CRITICAL: Activation of workspace "${ws.path}" failed during initialization (${err.message || err}), and emergency clear_workspace also failed (${clearErr.message || clearErr}). Rust authorization may still be active.`,
+                rustStateUncertain: true,
+                timestamp: new Date().toISOString()
+              };
+              set({
+                isScanningProject: false,
+                scanStatusMessage: `FATAL: Workspace initialization failed and emergency clear failed. Rust authorization may remain active. Recovery required: ${clearErr.message || clearErr}`,
+                workspaceSyncError: fatalError
+              });
+              throw new Error(fatalError.message);
             }
-          } else {
-            await NativeWorkspaceService.clearWorkspace().catch(() => {});
           }
         }
 
@@ -1772,8 +1775,16 @@ export const useAxionStore = create<AxionState>((set, get) => ({
         await NativeWorkspaceService.clearWorkspace();
       } catch (err: any) {
         console.error('Failed to clear native workspace in Rust:', err);
+        const fatalError: WorkspaceSyncError = {
+          phase: 'clear',
+          attemptedWorkspace: get().activeWorkspace?.absolutePath || 'Active Workspace',
+          message: `Failed to clear native workspace in Rust: ${err.message || err}. Rust authorization may still be active.`,
+          rustStateUncertain: true,
+          timestamp: new Date().toISOString()
+        };
         set({
-          scanStatusMessage: `Failed to disconnect native workspace: ${err.message || err}`
+          scanStatusMessage: `Failed to disconnect native workspace: ${err.message || err}`,
+          workspaceSyncError: fatalError
         });
         throw err;
       }
@@ -1790,6 +1801,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       selectedFilePath: '',
       detectedDevServerUrl: null,
       workspaceSwitchNotice: null,
+      workspaceSyncError: null,
       terminalLogs: [
         ...get().terminalLogs,
         `> Closed active workspace boundary. Native authorization cleared.`
@@ -1807,6 +1819,8 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       ]
     });
   },
+
+  clearWorkspaceSyncError: () => set({ workspaceSyncError: null }),
 
   removeRecentWorkspace: (workspaceId) => {
     const updated = get().workspaces.filter((w) => w.id !== workspaceId);
