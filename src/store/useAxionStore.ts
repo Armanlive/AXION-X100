@@ -241,8 +241,8 @@ interface AxionState {
   mountFileList: (fileList: FileList, rootName?: string) => Promise<void>;
   openCustomFolder: (name: string, path: string) => void;
   loadDirectoryFiles: (name: string, path: string, loadedFiles: Record<string, string>) => void;
-  switchWorkspace: (workspaceId: string) => void;
-  closeWorkspace: () => void;
+  switchWorkspace: (workspaceId: string) => Promise<void>;
+  closeWorkspace: () => Promise<void>;
   removeRecentWorkspace: (workspaceId: string) => void;
   clearRecentWorkspaces: () => void;
   setIsFolderPickerOpen: (open: boolean) => void;
@@ -847,13 +847,13 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       command: sanitizedCmd,
       cwd,
       origin,
-      details: `Execution started: "${sanitizedCmd}" in ${cwd}`,
+      details: `Execution started [SIMULATED]: "${sanitizedCmd}" in ${cwd}`,
       status: 'SUCCESS'
     };
 
     set((s) => ({ auditLogs: [startAuditLog, ...s.auditLogs] }));
 
-    // Real Command Parser & Response Generator
+    // Command Parser & Simulated Output Generator
     const lower = cmd.toLowerCase();
     let response = '';
     let exitCode = 0;
@@ -861,7 +861,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
     let isDevServer = false;
     let filesMayChange = couldModifyWorkspaceFiles(cmd);
 
-    // Give small async delay to emulate real process execution lifecycle
+    // Give small async delay to emulate process execution lifecycle
     await new Promise((r) => setTimeout(r, lower.includes('build') || lower.includes('install') ? 500 : 150));
 
     const activeWs = get().activeWorkspace;
@@ -874,54 +874,54 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       isDevServer = true;
       const detectedPort = 5173;
       detectedUrl = `http://localhost:${detectedPort}/`;
-      response = `  VITE v6.1.0  ready in 184 ms\n\n  ➜  Local:   http://localhost:${detectedPort}/\n  ➜  Network: use --host to expose\n  ➜  press h + enter to show help\n[Vite] Hot Module Replacement active\n[AXION] Connected to active workspace: ${cwd}`;
+      response = `[SIMULATED DEV SERVER - Terminal Sandbox]\n[NOTICE: Native dev server PTY lifecycle is deferred to Phase 5]\n  VITE v6.1.0  ready in 184 ms (Simulated)\n\n  ➜  Local:   http://localhost:${detectedPort}/\n  ➜  Network: use --host to expose\n[Vite Sandbox] Simulated dev server started. Real dev server PTY lifecycle active in Phase 5.\n[AXION] Connected to active workspace: ${cwd}`;
       
       set({ detectedDevServerUrl: detectedUrl });
-      get().addOutputLogEvent('DEV_SERVER', 'SUCCESS', `Development server listening at ${detectedUrl}`, 0, `Process active in ${cwd}`);
+      get().addOutputLogEvent('DEV_SERVER', 'INFO', `[SIMULATED] Development server simulated at ${detectedUrl} (Real process PTY deferred to Phase 5)`, 0, `Process simulated in ${cwd}`);
     } else if (lower === 'npm run build' || lower === 'npm build' || lower === 'tsc && vite build' || lower === 'vite build') {
       const errHeaderFile = files['src/components/Header.tsx'];
       const hasIntentionalError = errHeaderFile && errHeaderFile.includes('project: number;');
 
       if (hasIntentionalError) {
         exitCode = 2;
-        response = `> tsc && vite build\nsrc/components/Header.tsx:14:7 - error TS2322: Type 'string' is not assignable to type 'number'.\n\nFound 1 error in src/components/Header.tsx:14\n[BUILD FAILED] TypeScript compiler returned exit code 2.`;
-        get().addOutputLogEvent('BUILD', 'ERROR', 'Build failed with TS2322 in src/components/Header.tsx:14', 2);
+        response = `[SIMULATED BUILD - Terminal Sandbox]\n> tsc && vite build\nsrc/components/Header.tsx:14:7 - error TS2322: Type 'string' is not assignable to type 'number'.\n\nFound 1 error in src/components/Header.tsx:14\n[BUILD FAILED] Simulated TypeScript compiler returned exit code 2.`;
+        get().addOutputLogEvent('BUILD', 'ERROR', '[SIMULATED] Build failed with TS2322 in src/components/Header.tsx:14', 2);
       } else {
-        response = `> tsc && vite build\n✓ ${fileCount} workspace modules transformed.\ndist/index.html                   0.84 kB │ gzip: 0.42 kB\ndist/assets/index-D7b39a.css      14.2 kB │ gzip: 3.61 kB\ndist/assets/index-B4f91e.js      168.4 kB │ gzip: 52.88 kB\n✓ built in 1.14s. Zero TypeScript errors.`;
-        get().addOutputLogEvent('BUILD', 'SUCCESS', `Build completed in 1.14s. ${fileCount} modules bundled. Zero type errors.`, 0);
+        response = `[SIMULATED BUILD - Terminal Sandbox]\n> tsc && vite build\n[SIMULATION NOTICE: Native build process execution is deferred to Phase 5. Zero real disk build files emitted.]\n✓ ${fileCount} workspace modules processed in in-memory simulation.\n(Simulated bundle: dist/index.html, dist/assets/index.js)`;
+        get().addOutputLogEvent('BUILD', 'INFO', `[SIMULATED] Build command completed in sandbox. Native compiler execution deferred to Phase 5.`, 0);
       }
     } else if (lower === 'tsc --noemit' || lower === 'npm run typecheck' || lower === 'npm run check') {
       const errHeaderFile = files['src/components/Header.tsx'];
       const hasIntentionalError = errHeaderFile && errHeaderFile.includes('project: number;');
       if (hasIntentionalError) {
         exitCode = 2;
-        response = `src/components/Header.tsx:14:7 - error TS2322: Type 'string' is not assignable to type 'number'.\nFound 1 error.`;
-        get().addOutputLogEvent('LINT', 'ERROR', 'TypeScript compilation failed (TS2322)', 2);
+        response = `[SIMULATED TYPECHECK - Terminal Sandbox]\nsrc/components/Header.tsx:14:7 - error TS2322: Type 'string' is not assignable to type 'number'.\nFound 1 error.`;
+        get().addOutputLogEvent('LINT', 'ERROR', '[SIMULATED] TypeScript check found simulated error (TS2322)', 2);
       } else {
-        response = `✓ tsc --noEmit: Zero type errors found across ${fileCount} workspace files.`;
-        get().addOutputLogEvent('LINT', 'SUCCESS', 'TypeScript check passed: 0 type errors.', 0);
+        response = `[SIMULATED TYPECHECK - Terminal Sandbox]\n[SIMULATION NOTICE: Native tsc execution is deferred to Phase 5.]\n✓ Simulated tsc check across ${fileCount} workspace files.`;
+        get().addOutputLogEvent('LINT', 'INFO', '[SIMULATED] TypeScript check processed in terminal sandbox (Phase 5 native execution pending).', 0);
       }
     } else if (lower === 'npm test' || lower === 'vitest' || lower === 'npm run test') {
-      response = `✓ tests/workspaceBoundary.test.ts (4 tests) 32ms\n✓ tests/diffReviewGate.test.ts (6 tests) 48ms\n✓ tests/terminalExecution.test.ts (5 tests) 26ms\n\nTest Files  3 passed (3)\n     Tests  15 passed (15)\n  Duration  210ms\nSuite Status: PASSED (Zero regressions)`;
-      get().addOutputLogEvent('TEST', 'SUCCESS', 'Test suite passed: 15/15 tests passing across 3 test files.', 0);
+      response = `[SIMULATED TEST RUNNER - Terminal Sandbox]\n[SIMULATION NOTICE: Native test runner execution is deferred to Phase 5. No tests were executed on disk.]\nSimulated vitest suite: 3 mock test files processed.`;
+      get().addOutputLogEvent('TEST', 'INFO', '[SIMULATED] Test command processed in sandbox. Native test execution deferred to Phase 5.', 0);
     } else if (lower === 'npm run lint' || lower === 'eslint .') {
-      response = `✓ ESLint check passed. All rules compliant across ${fileCount} workspace files.`;
-      get().addOutputLogEvent('LINT', 'SUCCESS', 'Lint check passed: 0 warnings, 0 errors.', 0);
+      response = `[SIMULATED LINT - Terminal Sandbox]\n[SIMULATION NOTICE: Native ESLint execution is deferred to Phase 5.]\nSimulated lint check across ${fileCount} files completed.`;
+      get().addOutputLogEvent('LINT', 'INFO', '[SIMULATED] Lint check processed in sandbox.', 0);
     } else if (lower.startsWith('npm install') || lower.startsWith('npm i') || lower.startsWith('pnpm add') || lower.startsWith('yarn add')) {
       const pkg = cmd.split(' ').slice(2).join(' ') || 'all dependencies';
-      response = `added 42 packages, and audited 180 packages in 1.84s\nfound 0 vulnerabilities\n✓ Installed: ${pkg}`;
-      get().addOutputLogEvent('PROCESS', 'SUCCESS', `Package install completed: ${pkg}`, 0);
+      response = `[SIMULATED PACKAGE INSTALL - Terminal Sandbox]\n[SIMULATION NOTICE: Native package manager execution is deferred to Phase 5. No packages were installed on disk.]\nSimulated installation of ${pkg}`;
+      get().addOutputLogEvent('PROCESS', 'INFO', `[SIMULATED] Package install processed in sandbox: ${pkg}`, 0);
     } else if (lower === 'git status') {
       const dirtyKeys = Object.keys(get().unsavedFileChanges);
       if (dirtyKeys.length > 0) {
-        response = `On branch ${branchName}\nChanges not staged for commit:\n  (use "git add <file>..." to update what will be committed)\n${dirtyKeys.map((k) => `\tmodified:   ${k}`).join('\n')}\n\nno changes added to commit (use "git add")`;
+        response = `[SIMULATED GIT - Workspace Boundary View]\n(Native Git CLI execution is deferred to Phase 5)\nOn branch ${branchName}\nChanges not staged for commit:\n  (use "git add <file>..." to update what will be committed)\n${dirtyKeys.map((k) => `\tmodified:   ${k}`).join('\n')}\n\nno changes added to commit (use "git add")`;
       } else {
-        response = `On branch ${branchName}\nYour branch is up to date with 'origin/${branchName}'.\n\nChanges staged for commit: none\nWorking tree clean (active workspace boundary enforced)`;
+        response = `[SIMULATED GIT - Workspace Boundary View]\n(Native Git CLI execution is deferred to Phase 5)\nOn branch ${branchName}\nYour branch is up to date with 'origin/${branchName}'.\n\nChanges staged for commit: none\nWorking tree clean (active workspace boundary enforced)`;
       }
     } else if (lower === 'git branch' || lower === 'git branch -a') {
-      response = `* ${branchName}\n  origin/${branchName}`;
+      response = `[SIMULATED GIT]\n* ${branchName}\n  origin/${branchName}`;
     } else if (lower.startsWith('git log')) {
-      response = `commit 7e91a0c (HEAD -> ${branchName})\nAuthor: AXION Boss Agent <boss@axion.local>\nDate:   ${new Date().toDateString()} 10:14:02\n\n    feat: integrate native workspace terminal execution & safety gates\n\ncommit 3a42d1f\nAuthor: Developer <dev@local.workspace>\nDate:   Yesterday 18:22:10\n\n    chore: init workspace structure for ${activeWs?.name || 'project'}`;
+      response = `[SIMULATED GIT - Mock Log (Phase 5 git log pending)]\ncommit 7e91a0c (HEAD -> ${branchName})\nAuthor: AXION Boss Agent <boss@axion.local>\nDate:   ${new Date().toDateString()} 10:14:02\n\n    feat: integrate native workspace terminal execution & safety gates\n\ncommit 3a42d1f\nAuthor: Developer <dev@local.workspace>\nDate:   Yesterday 18:22:10\n\n    chore: init workspace structure for ${activeWs?.name || 'project'}`;
     } else if (lower === 'pwd') {
       response = cwd;
     } else if (lower === 'ls' || lower === 'dir') {
@@ -946,11 +946,11 @@ export const useAxionStore = create<AxionState>((set, get) => ({
     } else if (lower.startsWith('echo ')) {
       response = cmd.slice(5);
     } else if (lower === 'node -v' || lower === 'node --version') {
-      response = 'v20.18.0';
+      response = 'v20.18.0 (Container Node)';
     } else if (lower === 'npm -v' || lower === 'npm --version') {
       response = '10.8.2';
     } else if (lower === 'git --version') {
-      response = 'git version 2.44.0.windows.1';
+      response = 'git version 2.44.0 [Simulated View - Native Git CLI in Phase 5]';
     } else if (lower === 'python --version' || lower === 'python -v') {
       response = 'Python 3.12.3';
     } else if (lower === 'cargo --version') {
@@ -960,7 +960,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
     } else if (lower === 'gemini' || lower === 'gemini --version' || lower === 'gemini status') {
       response = `Gemini CLI v1.2.0\nDefault Provider: Google AI Studio Direct ($0.00 free tier)\nModel: gemini-2.0-flash\nStatus: Connected`;
     } else if (lower === 'help') {
-      response = `AXION Integrated Terminal Commands:\n  npm run dev       Start local development server (detects URL & connects preview)\n  npm run build     Validate TypeScript and bundle project\n  npm test          Run automated test suite\n  npm run lint      Run ESLint verification\n  git status        Show working tree and branch status\n  git branch        List git branches\n  git log           Show recent commit history\n  ls / dir          List workspace files and folders\n  pwd               Print active workspace directory\n  cat <path>        Display content of file\n  node -v / npm -v  Display runtime version\n  opencode status   Check autonomous engineering agent status\n  clear / cls       Clear terminal window`;
+      response = `AXION Integrated Terminal Commands [SIMULATED SANDBOX]:\n  npm run dev       Start simulated development server (detects URL & connects preview)\n  npm run build     Validate simulated build pipeline\n  npm test          Run simulated test runner\n  npm run lint      Run simulated ESLint verification\n  git status        Show working tree and branch status\n  git branch        List git branches\n  git log           Show recent commit history\n  ls / dir          List workspace files and folders\n  pwd               Print active workspace directory\n  cat <path>        Display content of file\n  node -v / npm -v  Display runtime version\n  opencode status   Check autonomous engineering agent status\n  clear / cls       Clear terminal window\n\n(NOTICE: Native process PTY execution is implemented in Phase 5)`;
     } else {
       // Analyze if invalid command or general shell command
       const analysis = analyzeCommand(cmd);
@@ -968,7 +968,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
         response = `[DANGEROUS COMMAND EXECUTED] ${sanitizedCmd}\nRisk: ${analysis.riskReason || 'Destructive file operation'}\nExit code: 0 (Executed under user override)`;
         get().addOutputLogEvent('SECURITY', 'WARN', `Executed dangerous command: ${sanitizedCmd}`, 0);
       } else {
-        response = `[axion-terminal] Executed: ${sanitizedCmd}\nCommand finished with exit code 0.`;
+        response = `[axion-terminal sandbox] Executed: ${sanitizedCmd}\nCommand finished with exit code 0. [Native PTY execution active in Phase 5]`;
       }
     }
 
@@ -978,9 +978,9 @@ export const useAxionStore = create<AxionState>((set, get) => ({
 
     const finalLogs = [
       ...session.logs,
-      `> ${sanitizedCmd}`,
+      `> ${sanitizedCmd} [SIMULATED]`,
       response,
-      `Process exited with code ${exitCode} (${durationMs}ms)`
+      `[SIMULATED] Process exited with code ${exitCode} (${durationMs}ms)`
     ];
 
     set((s) => ({
@@ -1579,13 +1579,17 @@ export const useAxionStore = create<AxionState>((set, get) => ({
     const ws = get().workspaces.find((w) => w.id === workspaceId);
     if (!ws) return;
 
-    const prevPath = get().activeWorkspace?.absolutePath || get().projectPath;
+    const prevActiveWs = get().activeWorkspace;
+    const prevPath = prevActiveWs?.absolutePath || get().projectPath;
 
     // 1. If running in native Tauri mode or workspace is local native, enforce Rust authorization first
     if (NativeWorkspaceService.isNative()) {
+      let rootSwitchedInRust = false;
       try {
         set({ isScanningProject: true, scanStatusMessage: `Activating native workspace: ${ws.path}...` });
         const info = await NativeWorkspaceService.setWorkspaceRoot(ws.path);
+        rootSwitchedInRust = true;
+
         const nativeFiles = await NativeWorkspaceService.listFiles(10);
 
         const fileContents: Record<string, string> = {};
@@ -1675,6 +1679,34 @@ export const useAxionStore = create<AxionState>((set, get) => ({
         return;
       } catch (err: any) {
         console.error('Failed to switch native workspace root:', err);
+
+        // Transactional rollback: prevent UI=A / Rust=B mismatch
+        if (rootSwitchedInRust) {
+          if (prevActiveWs && prevPath) {
+            try {
+              console.warn(`Rolling back Rust workspace root to previous workspace: ${prevPath}`);
+              await NativeWorkspaceService.setWorkspaceRoot(prevPath);
+            } catch (rollbackErr) {
+              console.error('Rollback to previous workspace failed. Clearing Rust authorization for safety.', rollbackErr);
+              await NativeWorkspaceService.clearWorkspace().catch(() => {});
+              savePersistedActiveWorkspace(null);
+              set({
+                activeWorkspace: null,
+                activeWorkspaceId: '',
+                projectPath: '',
+                files: {},
+                filesIndex: [],
+                selectedFilePath: '',
+                isScanningProject: false,
+                scanStatusMessage: `Workspace switch and rollback both failed. Workspace disconnected for safety: ${err.message || err}`
+              });
+              return;
+            }
+          } else {
+            await NativeWorkspaceService.clearWorkspace().catch(() => {});
+          }
+        }
+
         set({
           isScanningProject: false,
           scanStatusMessage: `Failed to switch native workspace: ${err.message || err}`
@@ -1733,14 +1765,21 @@ export const useAxionStore = create<AxionState>((set, get) => ({
     });
   },
 
-  closeWorkspace: () => {
-    // Clear canonical root in Rust state if running in native mode
+  closeWorkspace: async () => {
+    // 1. In native Tauri mode, await successful Rust clear before clearing frontend authorization
     if (NativeWorkspaceService.isNative()) {
-      NativeWorkspaceService.clearWorkspace().catch((e) =>
-        console.warn('Failed to clear native workspace in Rust:', e)
-      );
+      try {
+        await NativeWorkspaceService.clearWorkspace();
+      } catch (err: any) {
+        console.error('Failed to clear native workspace in Rust:', err);
+        set({
+          scanStatusMessage: `Failed to disconnect native workspace: ${err.message || err}`
+        });
+        throw err;
+      }
     }
 
+    // 2. Clear frontend state only after Rust authorization is guaranteed cleared
     savePersistedActiveWorkspace(null);
     set({
       activeWorkspace: null,
@@ -1753,7 +1792,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       workspaceSwitchNotice: null,
       terminalLogs: [
         ...get().terminalLogs,
-        `> Closed active workspace boundary. AXION in unmounted state.`
+        `> Closed active workspace boundary. Native authorization cleared.`
       ],
       auditLogs: [
         {
@@ -1761,7 +1800,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
           timestamp: new Date().toISOString(),
           actor: 'USER',
           action: 'WORKSPACE_SELECT',
-          details: `Active workspace closed.`,
+          details: `Active workspace closed and native boundary cleared.`,
           status: 'SUCCESS'
         },
         ...get().auditLogs
@@ -2780,9 +2819,9 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       activeDiff: fixHunk,
       terminalLogs: [
         ...state.terminalLogs,
-        '> [Self-Healing] Debug Agent identified TS2322 at Header.tsx:14.',
-        '> Prepared and verified AST repair patch.',
-        '✓ Build passed with exit code 0.'
+        '> [Self-Healing Simulation] Debug Agent identified TS2322 at Header.tsx:14.',
+        '> Prepared in-memory AST repair patch.',
+        '> [SIMULATED] Demonstration patch validated.'
       ]
     });
   },

@@ -173,13 +173,15 @@ export class NativeWorkspaceService {
 
   /**
    * Clears the active workspace in Rust memory.
+   * Throws if Rust fails to clear the active boundary.
    */
   public static async clearWorkspace(): Promise<void> {
     if (!this.isNative()) return;
     try {
       await invoke('clear_workspace');
-    } catch (e) {
-      console.warn('Failed to clear native workspace:', e);
+    } catch (err: any) {
+      const msg = typeof err === 'string' ? err : err?.message || JSON.stringify(err);
+      throw new Error(`Native Clear Workspace Error: ${msg}`);
     }
   }
 }

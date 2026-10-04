@@ -558,17 +558,43 @@ mod tests {
         let mut f = File::create(&secret_file).expect("Failed to create key file");
         writeln!(f, "TOP_SECRET").expect("Write failed");
 
-        let junction_link = root.join("junction_escape");
-        match symlink_dir(&outside_target, &junction_link) {
+        // On Windows, try creating an NTFS junction via `cmd /C mklink /J` first
+        // (which does not require elevated privileges on Windows), falling back to symlink_dir.
+        let created = {
+            let status = std::process::Command::new("cmd")
+                .args(["/C", "mklink", "/J", &junction_link.to_string_lossy(), &outside_target.to_string_lossy()])
+                .output();
+            match status {
+                Ok(out) if out.status.success() => Ok(()),
+                _ => symlink_dir(&outside_target, &junction_link),
+            }
+        };
+
+        match created {
             Ok(_) => {
                 let mut mgr = WorkspaceManager::new();
                 mgr.set_workspace_root(&root).expect("Failed to set root");
 
                 let err = mgr.resolve_and_validate_path("junction_escape/keys.json");
-                assert!(matches!(err, Err(WorkspaceError::SecurityEscapeViolation { .. })));
+                assert!(
+                    matches!(err, Err(WorkspaceError::SecurityEscapeViolation { .. })),
+                    "Expected SecurityEscapeViolation for Windows junction escape, got: {:?}",
+                    err
+                );
+
+                let read_err = mgr.read_text_file("junction_escape/keys.json");
+                assert!(
+                    matches!(read_err, Err(WorkspaceError::SecurityEscapeViolation { .. })),
+                    "Expected SecurityEscapeViolation on read_text_file, got: {:?}",
+                    read_err
+                );
             }
             Err(e) => {
-                eprintln!("Skipping junction test (privilege required): {}", e);
+                panic!(
+                    "Failed to create Windows NTFS directory junction or directory symlink: {}. \
+                     Reparse point escape security cannot be verified without a functional reparse point.",
+                    e
+                );
             }
         }
     }
