@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useAxionStore } from '../store/useAxionStore';
 import { globalVoiceEngine, VoiceState } from '../utils/voiceEngine';
 import { detectSpokenCommand, prepareTextForSpeech } from '../utils/voiceNormalizer';
-import { AxionFace } from './voice/AxionFace';
+import { AxionLivingCore, LivingCoreState } from './voice/AxionLivingCore';
 import { VoiceTranscript } from './voice/VoiceTranscript';
 import { VoiceControls } from './voice/VoiceControls';
 import { VoiceSettingsModal } from './VoiceSettingsModal';
@@ -278,13 +278,48 @@ export const LiveSpeechMode: React.FC = () => {
           </div>
         )}
 
-        {/* 1. Center Avatar: AxionFace */}
-        <div className="flex-1 flex flex-col items-center justify-center w-full">
-          <AxionFace
-            state={speechState}
+        {/* 1. Center Living Core (Abstract Energy Nucleus) */}
+        <div className="flex-1 flex flex-col items-center justify-center w-full px-4">
+          <AxionLivingCore
+            state={
+              speechState === 'listening'
+                ? 'listening'
+                : speechState === 'thinking' || speechState === 'transcribing'
+                ? 'thinking'
+                : speechState === 'speaking'
+                ? 'speaking'
+                : 'idle'
+            }
             audioLevel={audioLevel}
+            size="hero"
             isMuted={isMicMuted}
           />
+
+          {/* Living Core State Label */}
+          <div className="mt-4 flex items-center gap-2 px-3 py-1 rounded-full bg-zinc-900/90 border border-zinc-800 text-xs font-mono text-zinc-300">
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${
+                speechState === 'speaking'
+                  ? 'bg-cyan-400 animate-pulse'
+                  : speechState === 'thinking' || speechState === 'transcribing'
+                  ? 'bg-sky-400 animate-ping'
+                  : speechState === 'listening'
+                  ? 'bg-emerald-400 animate-pulse'
+                  : 'bg-zinc-500'
+              }`}
+            />
+            <span className="tracking-wide">
+              {isMicMuted
+                ? 'Muted'
+                : speechState === 'speaking'
+                ? 'Speaking…'
+                : speechState === 'thinking' || speechState === 'transcribing'
+                ? 'Thinking…'
+                : speechState === 'listening'
+                ? 'Listening…'
+                : 'Ready'}
+            </span>
+          </div>
 
           {/* 2. Status & Live Transcript */}
           <VoiceTranscript

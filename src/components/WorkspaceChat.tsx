@@ -3,6 +3,7 @@ import { useAxionStore } from '../store/useAxionStore';
 import { DiffViewer } from './DiffViewer';
 import { VoiceAudioWaveform } from './VoiceAudioWaveform';
 import { MarkdownRenderer } from './MarkdownRenderer';
+import { AxionLivingCore } from './voice/AxionLivingCore';
 import {
   ArrowUp,
   Mic,
@@ -39,6 +40,7 @@ export const WorkspaceChat: React.FC = () => {
     isWorking,
     speechState,
     setSpeechState,
+    setSpeechMode,
     triggerBuildErrorDemo,
     healBuildError,
     setCurrentTab,
@@ -523,52 +525,83 @@ export const WorkspaceChat: React.FC = () => {
         </div>
       ) : (
         /* ==================================================
-           5. NEW CHAT LANDING / AXION BRAND HERO (NEXTRON STYLE)
+           AXION LIVING CORE DESKTOP CHAT HERO
            ================================================== */
-        <div className="flex-1 flex flex-col items-center justify-center px-4 overflow-y-auto max-w-3xl w-full mx-auto text-center space-y-6 animate-in fade-in duration-200 py-10">
-          {/* Glowing Brand Icon */}
-          <div className="relative group">
-            <div className="w-14 h-14 rounded-2xl bg-zinc-900 border border-zinc-750 flex items-center justify-center shadow-2xl relative z-10">
-              <span className="text-xl font-bold font-mono tracking-tight text-white">AX</span>
-            </div>
-            <div className="absolute inset-0 bg-white/5 rounded-2xl blur-xl" />
-          </div>
+        <div className="flex-1 flex flex-col items-center justify-center px-4 overflow-y-auto max-w-2xl w-full mx-auto text-center space-y-6 animate-in fade-in duration-200 py-10">
+          {/* Hero Abstract Living Core */}
+          <AxionLivingCore state="idle" size="md" />
 
-          {/* Headings */}
-          <div className="space-y-2">
-            <div className="text-xs font-mono font-medium text-zinc-500 uppercase tracking-widest">
-              AXION-X100
+          {/* Clean Typography */}
+          <div className="space-y-1.5">
+            <div className="text-[11px] font-mono font-semibold text-cyan-400/90 uppercase tracking-widest">
+              AXION
             </div>
             <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-              How can AXION help?
+              Local intelligence. Your workspace.
             </h1>
             <p className="text-xs sm:text-sm text-zinc-400 max-w-md mx-auto leading-relaxed">
-              One private local workspace. 100 specialists. One intelligent Boss Agent.
+              One private local workspace. Real-time reasoning. 17 specialist agents.
             </p>
           </div>
 
-          {/* Quick Prompts Starters */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 w-full max-w-xl text-left pt-2">
-            {quickPrompts.map((qp, idx) => (
-              <button
-                key={idx}
-                onClick={() => {
-                  if (qp.action) qp.action();
-                  else if (qp.prompt) handleQuickPromptClick(qp.prompt, qp.isVoice);
-                }}
-                className="p-3 rounded-xl bg-[#121215] border border-zinc-800/80 hover:border-zinc-700 hover:bg-[#161619] transition group"
-              >
-                <div className="text-xs font-medium text-zinc-200 group-hover:text-white flex items-center justify-between">
-                  <span>{qp.label}</span>
-                  <ArrowUp className="w-3 h-3 text-zinc-500 group-hover:text-zinc-300 rotate-45 transition" />
+          {/* Three Focused Action Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full max-w-lg text-left pt-1">
+            <button
+              onClick={() => setCurrentTab('local_workspace')}
+              className="p-3.5 rounded-xl bg-[#121215] border border-zinc-800 hover:border-zinc-700 hover:bg-[#161619] transition group flex flex-col justify-between min-h-[84px]"
+            >
+              <div className="flex items-center justify-between w-full">
+                <Folder className="w-4 h-4 text-cyan-400" />
+                <ArrowUp className="w-3 h-3 text-zinc-600 group-hover:text-zinc-300 rotate-45 transition" />
+              </div>
+              <div>
+                <div className="text-xs font-semibold text-zinc-200 group-hover:text-white">
+                  Open Local Workspace
                 </div>
-                {qp.prompt && (
-                  <div className="text-[11px] text-zinc-500 truncate mt-1">
-                    "{qp.prompt}"
-                  </div>
-                )}
-              </button>
-            ))}
+                <div className="text-[11px] text-zinc-500 truncate mt-0.5 font-mono">
+                  {activeWorkspace ? activeWorkspace.name : 'Mount directory'}
+                </div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => {
+                setInputVal('Analyze this project architecture and check for build issues.');
+                textareaRef.current?.focus();
+              }}
+              className="p-3.5 rounded-xl bg-[#121215] border border-zinc-800 hover:border-zinc-700 hover:bg-[#161619] transition group flex flex-col justify-between min-h-[84px]"
+            >
+              <div className="flex items-center justify-between w-full">
+                <Sparkles className="w-4 h-4 text-cyan-400" />
+                <ArrowUp className="w-3 h-3 text-zinc-600 group-hover:text-zinc-300 rotate-45 transition" />
+              </div>
+              <div>
+                <div className="text-xs font-semibold text-zinc-200 group-hover:text-white">
+                  Ask AXION
+                </div>
+                <div className="text-[11px] text-zinc-500 truncate mt-0.5">
+                  Engineering prompt
+                </div>
+              </div>
+            </button>
+
+            <button
+              onClick={() => setSpeechMode('speech')}
+              className="p-3.5 rounded-xl bg-[#121215] border border-zinc-800 hover:border-zinc-700 hover:bg-[#161619] transition group flex flex-col justify-between min-h-[84px]"
+            >
+              <div className="flex items-center justify-between w-full">
+                <Mic className="w-4 h-4 text-cyan-400" />
+                <ArrowUp className="w-3 h-3 text-zinc-600 group-hover:text-zinc-300 rotate-45 transition" />
+              </div>
+              <div>
+                <div className="text-xs font-semibold text-zinc-200 group-hover:text-white">
+                  Voice Mode
+                </div>
+                <div className="text-[11px] text-zinc-500 truncate mt-0.5">
+                  Live vocal coding
+                </div>
+              </div>
+            </button>
           </div>
         </div>
       )}
@@ -667,13 +700,12 @@ export const WorkspaceChat: React.FC = () => {
                     /* LOCKED AUTONOMOUS MODE (DEFAULT) */
                     <button
                       onClick={() => setIsAgentMenuOpen(!isAgentMenuOpen)}
-                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-850 hover:bg-zinc-800 text-zinc-100 border border-zinc-750 text-[11px] font-medium transition shadow-sm"
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-850 hover:bg-zinc-800 text-zinc-100 border border-zinc-700/80 text-[11px] font-medium transition shadow-sm"
                       title="Boss Agent Autonomous Orchestration is Active (Click to configure)"
                     >
-                      <span className="text-xs">👑</span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
                       <span>Boss Agent</span>
-                      <Check className="w-3 h-3 text-emerald-400 stroke-[2.5]" />
-                      <Lock className="w-2.5 h-2.5 text-zinc-400" />
+                      <span className="text-[9px] font-mono font-semibold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-1 py-0.2 rounded">AUTO</span>
                     </button>
                   ) : (
                     /* UNLOCKED MANUAL CONTROL */
@@ -682,9 +714,9 @@ export const WorkspaceChat: React.FC = () => {
                       className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-950/40 hover:bg-amber-900/40 text-amber-300 border border-amber-600/40 text-[11px] font-medium transition shadow-sm"
                       title="Manual Mode Unlocked (Click to return to Boss Auto)"
                     >
-                      <span className="text-xs">👑</span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
                       <span>Boss Agent</span>
-                      <span className="text-[10px]">🔓</span>
+                      <span className="text-[9px] font-mono font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1 py-0.2 rounded">MANUAL</span>
                     </button>
                   )}
 

@@ -31,7 +31,7 @@ export const Header: React.FC = () => {
   const handleOpenFolderSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!customFolderName.trim()) return;
-    const path = customFolderPath.trim() || `E:\\Projects\\${customFolderName.trim()}`;
+    const path = customFolderPath.trim() || customFolderName.trim();
     openCustomFolder(customFolderName.trim(), path);
     setCustomFolderName('');
     setCustomFolderPath('');
@@ -145,7 +145,7 @@ export const Header: React.FC = () => {
                   type="text"
                   value={customFolderPath}
                   onChange={(e) => setCustomFolderPath(e.target.value)}
-                  placeholder="e.g. E:\Projects\vehicle-stock-management"
+                  placeholder="e.g. /path/to/project or C:\path\to\project"
                   className="w-full px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-700 text-xs text-white placeholder-zinc-600 focus:outline-none focus:border-zinc-500 font-mono"
                 />
               </div>

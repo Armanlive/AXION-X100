@@ -101,7 +101,7 @@ function loadInitialChatSessions(): { sessions: ChatSession[]; activeId: string 
   const defaultSession: ChatSession = {
     id: `chat-${Date.now()}`,
     title: 'New Conversation',
-    workspaceId: 'nexus-core',
+    workspaceId: 'default',
     createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     messages: [] // Starts completely empty
@@ -318,10 +318,10 @@ interface AxionState {
   setDiffViewMode: (mode: 'side-by-side' | 'unified') => void;
 }
 
-const initialChatData = loadInitialChatSessions();
-const initialBossLocked = loadInitialBossLocked();
 const persistedActiveWs = loadPersistedActiveWorkspace();
 const persistedRecentWs = loadPersistedRecentWorkspaces();
+const initialBossLocked = loadInitialBossLocked();
+const initialChatData = loadInitialChatSessions();
 
 export const useAxionStore = create<AxionState>((set, get) => ({
   currentTab: 'workspace',
@@ -456,7 +456,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       name: 'Gemini CLI',
       type: 'gemini-cli',
       shell: 'Gemini CLI v1.2.0',
-      cwd: persistedActiveWs?.absolutePath || 'E:\\Projects\\nexus-core',
+      cwd: persistedActiveWs?.absolutePath || '',
       status: 'idle',
       logs: [
         'Google Gemini CLI v1.2.0 (Developer Tools)',
@@ -482,7 +482,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       level: 'INFO',
       message: `Workspace mounted: ${persistedActiveWs?.name || 'Local Workspace'} (${persistedActiveWs?.indexedFileCount || 0} files indexed)`,
       exitCode: 0,
-      details: `Root: ${persistedActiveWs?.absolutePath || 'E:\\Projects\\nexus-core'}`
+      details: persistedActiveWs ? `Root: ${persistedActiveWs.absolutePath}` : 'No workspace connected'
     },
     {
       id: 'out-2',
@@ -569,7 +569,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
     if (!trimmed) return;
     const analysis = analyzeCommand(trimmed);
     const activeWs = get().activeWorkspace;
-    const cwd = activeWs?.absolutePath || get().projectPath || 'E:\\Projects\\LocalWorkspace';
+    const cwd = activeWs?.absolutePath || get().projectPath || '';
 
     const proposed: ProposedTerminalCommand = {
       id: `prop-${Date.now()}`,
@@ -677,7 +677,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
   createTerminalSession: (name, type = 'powershell', cwd) => {
     const sessions = get().terminalSessions;
     const activeWs = get().activeWorkspace;
-    const sessionCwd = cwd || activeWs?.absolutePath || get().projectPath || 'E:\\Projects\\nexus-core';
+    const sessionCwd = cwd || activeWs?.absolutePath || get().projectPath || '';
     const newId = `term-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
     const defaultName = name || `Terminal ${sessions.length + 1}`;
 
@@ -705,7 +705,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       status: 'idle',
       logs: [
         `Spawned new session "${defaultName}" [${shellLabel}]`,
-        `Workspace CWD: ${sessionCwd}`,
+        sessionCwd ? `Workspace CWD: ${sessionCwd}` : 'No workspace connected',
         'Ready for commands.'
       ],
       history: [],
@@ -718,7 +718,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       isTerminalOpen: true
     }));
 
-    get().addOutputLogEvent('PROCESS', 'INFO', `Spawned terminal session [${defaultName}] in ${sessionCwd}`);
+    get().addOutputLogEvent('PROCESS', 'INFO', `Spawned terminal session [${defaultName}] in ${sessionCwd || '[No workspace]'}`);
 
     return newId;
   },
@@ -729,7 +729,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
 
     if (terminalSessions.length <= 1) {
       const activeWs = get().activeWorkspace;
-      const cwd = activeWs?.absolutePath || get().projectPath || 'E:\\Projects\\nexus-core';
+      const cwd = activeWs?.absolutePath || get().projectPath || '';
       const freshSession: TerminalSession = {
         id: `term-${Date.now()}`,
         name: 'PowerShell',
@@ -737,7 +737,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
         shell: 'PowerShell 7.4.2',
         cwd,
         status: 'idle',
-        logs: ['Fresh terminal session started.', `Workspace CWD: ${cwd}`],
+        logs: ['Fresh terminal session started.', cwd ? `Workspace CWD: ${cwd}` : 'No workspace connected'],
         history: [],
         createdAt: formatTimestamp()
       };
@@ -931,11 +931,16 @@ export const useAxionStore = create<AxionState>((set, get) => ({
 
   clearSessionLogs: (sessionId) => {
     const activeWs = get().activeWorkspace;
-    const cwd = activeWs?.absolutePath || get().projectPath || 'E:\\Projects\\nexus-core';
+    const cwd = activeWs?.absolutePath || get().projectPath || '';
     set((s) => ({
       terminalSessions: s.terminalSessions.map((ts) =>
         ts.id === sessionId
-          ? { ...ts, logs: [`Terminal output cleared.`, `Workspace CWD: ${cwd}`] }
+          ? {
+              ...ts,
+              logs: cwd
+                ? [`Terminal output cleared.`, `Workspace CWD: ${cwd}`]
+                : [`Terminal output cleared.`, `No workspace mounted.`]
+            }
           : ts
       )
     }));
