@@ -99,8 +99,8 @@ export const CloudRouter: React.FC = () => {
           {/* Quick Metrics */}
           <div className="flex items-center gap-3 text-xs font-mono">
             <div className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800">
-              <span className="text-zinc-500 uppercase text-[10px] block">Active Primary</span>
-              <span className="text-emerald-400 font-medium">Gemini 2.0 Flash (Free)</span>
+              <span className="text-zinc-500 uppercase text-[10px] block">Demo Selection</span>
+              <span className="text-emerald-400 font-medium">Gemini 2.0 Flash (Free Tier)</span>
             </div>
             <div className="px-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-800">
               <span className="text-zinc-500 uppercase text-[10px] block">Incurred Cost</span>
@@ -143,14 +143,14 @@ export const CloudRouter: React.FC = () => {
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <ShieldCheck className="w-5 h-5 text-emerald-400" />
-                  <h3 className="text-sm font-semibold text-white">Zero-Cost Dynamic Model Router Policy</h3>
+                  <h3 className="text-sm font-semibold text-white">Free-First Model Router Policy (Preview)</h3>
                 </div>
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-emerald-950/60 text-emerald-400 border border-emerald-800/40">
-                  Guaranteed Free-First
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono bg-zinc-800 text-zinc-300 border border-zinc-700">
+                  Routing Preview
                 </span>
               </div>
               <p className="text-xs text-zinc-400 leading-relaxed">
-                AXION operates strictly on a free-first autonomous routing hierarchy. All code generation, architectural analysis, and specialist agent calls are directed to verified zero-cost endpoints (Google Gemini, OpenRouter Free, or local Ollama). Paid endpoints are hard-blocked by default and require explicit user authorization.
+                AXION is designed for a free-first autonomous routing hierarchy. In this prototype, model catalog entries preview free-tier options (Google Gemini, OpenRouter Free, or local Ollama). Paid endpoints require explicit user authorization before prototype routing.
               </p>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-2">
                 <div className="p-3 rounded-xl bg-zinc-900/60 border border-zinc-800">
@@ -300,7 +300,7 @@ export const CloudRouter: React.FC = () => {
                       {isActive && (
                         <span className="absolute -top-2.5 right-3 px-2 py-0.5 bg-zinc-100 text-zinc-950 text-[10px] font-mono font-bold rounded-full shadow-sm flex items-center gap-1">
                           <Check className="w-3 h-3 text-emerald-600 stroke-[3]" />
-                          ACTIVE MODEL
+                          DEMO SELECTION
                         </span>
                       )}
 
@@ -310,14 +310,12 @@ export const CloudRouter: React.FC = () => {
                         </span>
                         <span
                           className={`text-[10px] font-mono px-1.5 py-0.2 rounded-full ${
-                            model.status === 'healthy'
-                              ? 'bg-emerald-500/10 text-emerald-400'
-                              : model.status === 'degraded'
+                            model.status === 'degraded'
                               ? 'bg-amber-500/10 text-amber-400'
-                              : 'bg-zinc-800 text-zinc-500'
+                              : 'bg-zinc-800 text-zinc-400 border border-zinc-700/60'
                           }`}
                         >
-                          ● {model.status === 'healthy' ? 'AVAILABLE' : model.status.toUpperCase()}
+                          ● {model.status === 'untested' ? 'CATALOG MODEL' : model.status === 'healthy' ? 'CATALOG MODEL' : model.status.toUpperCase()}
                         </span>
                       </div>
 
@@ -377,7 +375,7 @@ export const CloudRouter: React.FC = () => {
                                 : 'bg-zinc-900 hover:bg-zinc-800 text-zinc-200 border border-zinc-700'
                             }`}
                           >
-                            {isActive ? 'Selected Route' : 'Set as Active'}
+                            {isActive ? 'Demo Selection' : 'Select for Preview'}
                           </button>
                         )}
                       </div>
@@ -518,13 +516,13 @@ export const CloudRouter: React.FC = () => {
             </div>
 
             <div className="p-4 rounded-xl bg-[#121215] border border-zinc-800 space-y-3">
-              <h4 className="text-xs font-semibold text-zinc-200 uppercase font-mono">Routing Priority Hierarchy</h4>
+              <h4 className="text-xs font-semibold text-zinc-200 uppercase font-mono">Routing Priority Hierarchy (Demo Preview)</h4>
               <div className="space-y-2">
                 {[
-                  { priority: 1, name: 'Gemini 2.0 Flash (Zero-Cost Free Tier)', status: 'Priority 1 (Targeted Free Route)', cost: '$0.00' },
-                  { priority: 2, name: 'OpenRouter Free Gateway (Qwen 2.5 Coder / Llama 3.3)', status: 'Standby Failover', cost: '$0.00' },
-                  { priority: 3, name: 'Ollama Local Compute (Offline Fallback)', status: 'Offline Standby (Untested)', cost: '$0.00' },
-                  { priority: 4, name: 'Paid Models (Anthropic / OpenAI)', status: 'Requires Explicit User Unlock', cost: 'User Authorized Only' }
+                  { priority: 1, name: 'Gemini 2.0 Flash (Free Tier Catalog)', status: 'Example Route 1 (Demo)', cost: '$0.00' },
+                  { priority: 2, name: 'OpenRouter Free Gateway (Qwen 2.5 Coder / Llama 3.3)', status: 'Example Route 2 (Demo)', cost: '$0.00' },
+                  { priority: 3, name: 'Ollama Local Compute (Offline Fallback)', status: 'Not Configured (Demo)', cost: '$0.00' },
+                  { priority: 4, name: 'Paid Models (Anthropic / OpenAI)', status: 'User Authorized Only (Demo)', cost: 'User Authorized Only' }
                 ].map((item) => (
                   <div key={item.priority} className="flex items-center justify-between p-3 rounded-lg bg-zinc-900/70 border border-zinc-800 text-xs">
                     <div className="flex items-center gap-2.5">
@@ -552,7 +550,7 @@ export const CloudRouter: React.FC = () => {
             <div className="p-4 rounded-xl bg-[#121215] border border-zinc-800 space-y-2">
               <div className="flex items-center gap-2">
                 <HardDrive className="w-4 h-4 text-emerald-400" />
-                <h3 className="text-xs font-bold text-white">Local Compute & Ollama Engine</h3>
+                <h3 className="text-xs font-bold text-white">Local Compute & Ollama Engine (Demo Catalog)</h3>
               </div>
               <p className="text-xs text-zinc-400 leading-relaxed">
                 Ollama runs offline on your local GPU/CPU. When active, zero network telemetry or code context leaves your machine.
@@ -566,20 +564,20 @@ export const CloudRouter: React.FC = () => {
                   <div key={m.id} className="p-4 rounded-xl bg-zinc-900/80 border border-zinc-800 space-y-2">
                     <div className="flex items-center justify-between">
                       <span className="text-xs font-bold text-white">{m.name}</span>
-                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/60 text-emerald-400 border border-emerald-800/40">
-                        100% Offline
+                      <span className="text-[10px] font-mono px-2 py-0.5 rounded bg-zinc-800 text-zinc-400 border border-zinc-700/60">
+                        Offline Catalog
                       </span>
                     </div>
                     <div className="text-[11px] text-zinc-400 font-mono space-y-1">
                       <div>Context: {m.contextWindow}</div>
-                      <div>Latency: {m.latencyMs}ms (Local Bus)</div>
+                      <div>Latency: Not measured (Local bus)</div>
                       <div>Privacy: Zero Telemetry</div>
                     </div>
                     <button
                       onClick={() => setActiveModelId(m.id)}
                       className="w-full mt-2 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-mono transition"
                     >
-                      {m.id === activeModelId ? 'Active Local Model' : 'Switch to Local Model'}
+                      {m.id === activeModelId ? 'Demo Selection (Local)' : 'Select Local (Demo)'}
                     </button>
                   </div>
                 ))}

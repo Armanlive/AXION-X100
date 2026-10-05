@@ -95,6 +95,7 @@ export class SpeechRecognitionAdapter {
         return;
       }
       console.warn('Speech recognition error event:', event.error);
+      this.isListening = false;
       this.onErrorCallback?.(event.error);
     };
 

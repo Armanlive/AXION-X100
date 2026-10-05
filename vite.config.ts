@@ -13,18 +13,18 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 3000,
-    // Narrowed host policy:
-    // - '.run.app' wildcard is explicitly required by the Google AI Studio cloud development/preview environment
-    // - 'localhost' and '127.0.0.1' are required for native Tauri v2 webview IPC development
-    // Note: This is a preview/dev environment binding, not a production security configuration.
-    allowedHosts: ['.run.app', 'localhost', '127.0.0.1'],
+    // AI Studio Cloud Environment Requirement:
+    // Vite 6 host validation blocks requests from Google Cloud Run preview domains,
+    // Google internal proxies (e.g. localhost.corp.google.com), and dynamic iframe hosts.
+    // Broad allowedHosts: true is required by the AI Studio cloud sandbox to prevent 403 Forbidden errors.
+    // Note: This is an environment preview binding, not a production security configuration.
+    allowedHosts: true,
   },
   preview: {
     host: '0.0.0.0',
     port: 3000,
-    allowedHosts: ['.run.app', 'localhost', '127.0.0.1'],
+    allowedHosts: true,
   },
-  // Do NOT expose process.env server/native secrets into client bundle.
   // Prototype client-side AI keys use import.meta.env.VITE_GEMINI_API_KEY only.
   clearScreen: false,
 });

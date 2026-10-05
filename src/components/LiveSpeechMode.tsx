@@ -51,16 +51,30 @@ export const LiveSpeechMode: React.FC = () => {
 
   const isPushToTalk = voiceSettings?.listeningMode === 'push-to-talk';
   const [isPttActive, setIsPttActive] = useState(false);
+  const isPttActiveRef = useRef(false);
 
   // Push-to-Talk activation handlers
-  const startPtt = () => {
+  const startPtt = (e?: React.PointerEvent) => {
     if (isMicMuted || speechState === 'speaking' || speechState === 'thinking') return;
+    if (e && e.currentTarget && 'setPointerCapture' in e.currentTarget) {
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch (_) {}
+    }
+    isPttActiveRef.current = true;
     setIsPttActive(true);
     globalVoiceEngine.startListening();
     setSpeechState('listening');
   };
 
-  const stopPtt = () => {
+  const stopPtt = (e?: React.PointerEvent) => {
+    if (e && e.currentTarget && 'releasePointerCapture' in e.currentTarget) {
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch (_) {}
+    }
+    if (!isPttActiveRef.current) return;
+    isPttActiveRef.current = false;
     setIsPttActive(false);
     globalVoiceEngine.stopListening();
     if (speechState === 'listening') {
@@ -68,7 +82,7 @@ export const LiveSpeechMode: React.FC = () => {
     }
   };
 
-  // Keyboard Spacebar listener for Push-to-Talk
+  // Keyboard Spacebar & window blur listener for Push-to-Talk
   useEffect(() => {
     if (!isPushToTalk) return;
 
@@ -94,11 +108,19 @@ export const LiveSpeechMode: React.FC = () => {
       }
     };
 
+    const handleBlur = () => {
+      if (isPttActiveRef.current) {
+        stopPtt();
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
     window.addEventListener('keyup', handleKeyUp);
+    window.addEventListener('blur', handleBlur);
     return () => {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
+      window.removeEventListener('blur', handleBlur);
     };
   }, [isPushToTalk, isMicMuted, speechState]);
 
@@ -184,9 +206,15 @@ export const LiveSpeechMode: React.FC = () => {
       onError: (err: string) => {
         if (isComponentMounted.current) {
           console.warn('[VoiceEngine error]', err);
+          isPttActiveRef.current = false;
+          setIsPttActive(false);
+          globalVoiceEngine.stopListening();
+          setSpeechState('idle');
           if (err.includes('not-allowed') || err.includes('permission') || err.includes('denied')) {
             setIsPermissionDenied(true);
-            setRuntimeWarning('Microphone access was denied. Please allow microphone permissions to speak with AXION.');
+            setRuntimeWarning('Microphone access was denied. Please allow microphone permissions in your browser.');
+          } else {
+            setRuntimeWarning(`Microphone error: ${err}`);
           }
         }
       }
@@ -228,24 +256,45 @@ export const LiveSpeechMode: React.FC = () => {
 
     return () => {
       isComponentMounted.current = false;
+      isPttActiveRef.current = false;
+      setIsPttActive(false);
       globalVoiceEngine.stopListening();
     };
   }, []);
 
-  // Handle Mute / Unmute / Mode Switching
+  // Mode switch listener: Continuous <-> Push-to-Talk
   useEffect(() => {
     if (isPushToTalk) {
-      if (!isPttActive) {
-        globalVoiceEngine.stopListening();
-      }
-      return;
-    }
-    if (isMicMuted) {
+      // Continuous -> Push-to-Talk: stop any continuous listening and return to truthful idle
+      isPttActiveRef.current = false;
+      setIsPttActive(false);
       globalVoiceEngine.stopListening();
-    } else if (speechState !== 'speaking' && speechState !== 'thinking') {
+      if (speechState === 'listening') {
+        setSpeechState('idle');
+      }
+    } else {
+      // Push-to-Talk -> Continuous: start continuous listening only if enabled/unmuted
+      isPttActiveRef.current = false;
+      setIsPttActive(false);
+      if (!isMicMuted && speechState !== 'speaking' && speechState !== 'thinking') {
+        globalVoiceEngine.startListening();
+      }
+    }
+  }, [voiceSettings?.listeningMode]);
+
+  // Handle Mute / Unmute
+  useEffect(() => {
+    if (isMicMuted) {
+      isPttActiveRef.current = false;
+      setIsPttActive(false);
+      globalVoiceEngine.stopListening();
+      if (speechState === 'listening') {
+        setSpeechState('idle');
+      }
+    } else if (!isPushToTalk && speechState !== 'speaking' && speechState !== 'thinking') {
       globalVoiceEngine.startListening();
     }
-  }, [isMicMuted, isPushToTalk, isPttActive]);
+  }, [isMicMuted, isPushToTalk]);
 
   // Read latest message via TTS when bot responds in voice mode
   const lastBotMessage = useMemo(() => {
@@ -398,11 +447,11 @@ export const LiveSpeechMode: React.FC = () => {
           {isPushToTalk && (
             <div className="mt-3 flex flex-col items-center gap-1.5 animate-in fade-in duration-200">
               <button
-                onMouseDown={startPtt}
-                onMouseUp={stopPtt}
-                onTouchStart={startPtt}
-                onTouchEnd={stopPtt}
-                className={`px-6 py-2.5 rounded-full text-xs font-mono font-bold tracking-wider uppercase transition-all shadow-lg flex items-center gap-2 select-none active:scale-95 ${
+                onPointerDown={startPtt}
+                onPointerUp={stopPtt}
+                onPointerCancel={stopPtt}
+                onContextMenu={(e) => e.preventDefault()}
+                className={`px-6 py-2.5 rounded-full text-xs font-mono font-bold tracking-wider uppercase transition-all shadow-lg flex items-center gap-2 touch-none select-none active:scale-95 ${
                   isPttActive
                     ? 'bg-cyan-400 text-black shadow-cyan-500/40 ring-4 ring-cyan-500/30'
                     : 'bg-zinc-800 hover:bg-zinc-750 text-zinc-200 border border-zinc-700 hover:border-cyan-500/40'

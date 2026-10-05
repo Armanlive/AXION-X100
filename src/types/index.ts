@@ -44,8 +44,8 @@ export interface AIModel {
   inputCost?: string;
   outputCost?: string;
   contextWindow: string;
-  status: 'healthy' | 'degraded' | 'rate_limited' | 'offline';
-  latencyMs: number;
+  status: 'healthy' | 'degraded' | 'rate_limited' | 'offline' | 'untested';
+  latencyMs?: number;
   capabilities?: ('coding' | 'reasoning' | 'vision' | 'tool_use' | 'fast')[];
   codingScore?: number;
   isLocal?: boolean;

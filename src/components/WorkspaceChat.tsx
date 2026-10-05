@@ -749,7 +749,7 @@ export const WorkspaceChat: React.FC = () => {
                             </div>
                             <div className="flex items-center gap-2 text-zinc-500">
                               <span className="w-3.5 h-3.5 flex items-center justify-center text-[10px]">•</span>
-                              <span className="italic">Native execution planned for Phase 2</span>
+                              <span className="italic">Native terminal execution is not implemented yet</span>
                             </div>
                           </div>
 

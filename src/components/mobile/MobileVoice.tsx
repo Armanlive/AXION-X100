@@ -10,7 +10,9 @@ import {
   Volume2,
   VolumeX,
   MessageSquare,
-  AlertCircle
+  AlertCircle,
+  Hand,
+  Radio
 } from 'lucide-react';
 
 export const MobileVoice: React.FC = () => {
@@ -26,8 +28,14 @@ export const MobileVoice: React.FC = () => {
     isWorking,
     messages,
     interruptSpeech,
-    activeWorkspace
+    activeWorkspace,
+    voiceSettings,
+    updateVoiceSettings
   } = useAxionStore();
+
+  const isPushToTalk = voiceSettings?.listeningMode === 'push-to-talk';
+  const [isPttActive, setIsPttActive] = useState(false);
+  const isPttActiveRef = useRef(false);
 
   const [liveTranscript, setLiveTranscript] = useState('');
   const [interimTranscript, setInterimTranscript] = useState('');
@@ -36,10 +44,61 @@ export const MobileVoice: React.FC = () => {
 
   const isMountedRef = useRef(true);
 
-  // Initialize Speech Recognition
+  // Push-to-Talk activation handlers for touch / pointer
+  const startPtt = (e?: React.PointerEvent) => {
+    if (isMicMuted || speechState === 'speaking' || speechState === 'thinking') return;
+    if (e && e.currentTarget && 'setPointerCapture' in e.currentTarget) {
+      try {
+        e.currentTarget.setPointerCapture(e.pointerId);
+      } catch (_) {}
+    }
+    isPttActiveRef.current = true;
+    setIsPttActive(true);
+    globalVoiceEngine.startListening();
+    setSpeechState('listening');
+  };
+
+  const stopPtt = (e?: React.PointerEvent) => {
+    if (e && e.currentTarget && 'releasePointerCapture' in e.currentTarget) {
+      try {
+        e.currentTarget.releasePointerCapture(e.pointerId);
+      } catch (_) {}
+    }
+    if (!isPttActiveRef.current) return;
+    isPttActiveRef.current = false;
+    setIsPttActive(false);
+    globalVoiceEngine.stopListening();
+    if (speechState === 'listening') {
+      setSpeechState('idle');
+    }
+  };
+
+  // Ensure window blur or app switch cleanly cancels any active PTT
+  useEffect(() => {
+    const handleBlur = () => {
+      if (isPttActiveRef.current) {
+        isPttActiveRef.current = false;
+        setIsPttActive(false);
+        globalVoiceEngine.stopListening();
+        setSpeechState('idle');
+      }
+    };
+    window.addEventListener('blur', handleBlur);
+    return () => window.removeEventListener('blur', handleBlur);
+  }, []);
+
+  // Initialize Speech Recognition & Engine Event Handlers
   useEffect(() => {
     isMountedRef.current = true;
     setWarningMessage(null);
+
+    // Apply voice settings synthesis
+    if (voiceSettings) {
+      globalVoiceEngine.synthesisAdapter.setVoiceSettings(
+        voiceSettings.voiceName,
+        voiceSettings.speed || 1.05
+      );
+    }
 
     if (!globalVoiceEngine.isRecognitionSupported()) {
       setWarningMessage('Speech recognition requires microphone permissions or is unsupported in this browser.');
@@ -66,31 +125,66 @@ export const MobileVoice: React.FC = () => {
           if (isMountedRef.current) interruptSpeech();
         },
         onError: (err: string) => {
-          if (isMountedRef.current && (err.includes('not-allowed') || err.includes('denied'))) {
-            setWarningMessage('Microphone access denied. Please grant permission in browser settings.');
+          if (!isMountedRef.current) return;
+          isPttActiveRef.current = false;
+          setIsPttActive(false);
+          globalVoiceEngine.stopListening();
+          setSpeechState('idle');
+          if (err.includes('not-allowed') || err.includes('permission') || err.includes('denied')) {
+            setWarningMessage('Microphone access was denied. Please grant microphone permission in browser settings.');
+          } else {
+            setWarningMessage(`Microphone error: ${err}`);
           }
         }
       });
 
-      if (!isMicMuted) {
+      // Start continuous listening ONLY if not in Push-to-Talk and not muted
+      if (!isMicMuted && !isPushToTalk) {
         globalVoiceEngine.startListening();
       }
     }
 
     return () => {
       isMountedRef.current = false;
+      isPttActiveRef.current = false;
+      setIsPttActive(false);
       globalVoiceEngine.stopListening();
     };
   }, []);
 
-  // Handle Mute State Change
+  // Mode switch listener: Continuous <-> Push-to-Talk
+  useEffect(() => {
+    if (isPushToTalk) {
+      // Continuous -> Push-to-Talk: stop any continuous listening and return to truthful idle
+      isPttActiveRef.current = false;
+      setIsPttActive(false);
+      globalVoiceEngine.stopListening();
+      if (speechState === 'listening') {
+        setSpeechState('idle');
+      }
+    } else {
+      // Push-to-Talk -> Continuous: start continuous listening only if enabled/unmuted
+      isPttActiveRef.current = false;
+      setIsPttActive(false);
+      if (!isMicMuted && speechState !== 'speaking' && speechState !== 'thinking') {
+        globalVoiceEngine.startListening();
+      }
+    }
+  }, [voiceSettings?.listeningMode]);
+
+  // Handle Mute State Changes
   useEffect(() => {
     if (isMicMuted) {
+      isPttActiveRef.current = false;
+      setIsPttActive(false);
       globalVoiceEngine.stopListening();
-    } else if (speechState !== 'speaking' && speechState !== 'thinking') {
+      if (speechState === 'listening') {
+        setSpeechState('idle');
+      }
+    } else if (!isPushToTalk && speechState !== 'speaking' && speechState !== 'thinking') {
       globalVoiceEngine.startListening();
     }
-  }, [isMicMuted]);
+  }, [isMicMuted, isPushToTalk]);
 
   // Read latest message via TTS when bot responds in voice mode
   const lastBotMessage = messages[messages.length - 1];
@@ -102,7 +196,7 @@ export const MobileVoice: React.FC = () => {
     const cleanToSpeak = prepareTextForSpeech(lastBotMessage.text);
     if (cleanToSpeak) {
       globalVoiceEngine.speak(cleanToSpeak, () => {
-        if (isMountedRef.current && !isMicMuted) {
+        if (isMountedRef.current && !isMicMuted && !isPushToTalk) {
           globalVoiceEngine.startListening();
         }
       });
@@ -110,20 +204,29 @@ export const MobileVoice: React.FC = () => {
   }, [lastBotMessage?.text, isWorking]);
 
   const handleReturnToChat = () => {
+    isPttActiveRef.current = false;
+    setIsPttActive(false);
     globalVoiceEngine.destroy();
     setSpeechMode('chat');
   };
 
   const currentDisplaySpeech = interimTranscript || liveTranscript;
 
-  const coreState: LivingCoreState =
-    speechState === 'listening'
+  const coreState: LivingCoreState = isPushToTalk
+    ? isPttActive
       ? 'listening'
       : speechState === 'thinking' || speechState === 'transcribing'
       ? 'thinking'
       : speechState === 'speaking'
       ? 'speaking'
-      : 'idle';
+      : 'idle'
+    : speechState === 'listening'
+    ? 'listening'
+    : speechState === 'thinking' || speechState === 'transcribing'
+    ? 'thinking'
+    : speechState === 'speaking'
+    ? 'speaking'
+    : 'idle';
 
   return (
     <div className="flex-1 flex flex-col h-full bg-[#08080a] text-zinc-100 select-none overflow-hidden relative pb-16">
@@ -135,19 +238,36 @@ export const MobileVoice: React.FC = () => {
             AXION VOICE
           </span>
           <span className="text-zinc-600 font-mono">·</span>
-          <span className="text-[10px] font-mono text-zinc-500 truncate max-w-[120px]">
+          <span className="text-[10px] font-mono text-zinc-500 truncate max-w-[100px]">
             {activeWorkspace ? activeWorkspace.name : 'Phase 1'}
           </span>
         </div>
 
-        <button
-          onClick={handleReturnToChat}
-          className="flex items-center gap-1.5 px-2.5 py-1 min-h-[44px] text-xs font-medium text-zinc-400 hover:text-white transition"
-          aria-label="Return to Chat"
-        >
-          <MessageSquare className="w-3.5 h-3.5" />
-          <span className="text-[11px]">Chat</span>
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Mobile Listening Mode Switcher */}
+          <button
+            onClick={() =>
+              updateVoiceSettings({
+                listeningMode: isPushToTalk ? 'continuous' : 'push-to-talk'
+              })
+            }
+            className="flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-mono bg-zinc-900 border border-zinc-800 text-cyan-300 hover:border-cyan-500/40 active:scale-95 transition"
+            title="Switch Voice Listening Mode"
+            aria-label={`Current mode: ${isPushToTalk ? 'Push-to-Talk' : 'Continuous'}. Tap to switch.`}
+          >
+            {isPushToTalk ? <Hand className="w-3 h-3 text-cyan-400" /> : <Radio className="w-3 h-3 text-cyan-400" />}
+            <span>{isPushToTalk ? 'PTT' : 'Live'}</span>
+          </button>
+
+          <button
+            onClick={handleReturnToChat}
+            className="flex items-center gap-1.5 px-2.5 py-1 min-h-[44px] text-xs font-medium text-zinc-400 hover:text-white transition"
+            aria-label="Return to Chat"
+          >
+            <MessageSquare className="w-3.5 h-3.5" />
+            <span className="text-[11px]">Chat</span>
+          </button>
+        </div>
       </header>
 
       {/* 2. Hero Visual Focus: Living Core */}
@@ -176,6 +296,10 @@ export const MobileVoice: React.FC = () => {
                   ? 'bg-cyan-400 animate-pulse'
                   : speechState === 'thinking' || speechState === 'transcribing'
                   ? 'bg-sky-400 animate-ping'
+                  : isPushToTalk
+                  ? isPttActive
+                    ? 'bg-emerald-400 animate-pulse'
+                    : 'bg-zinc-500'
                   : speechState === 'listening'
                   ? 'bg-emerald-400 animate-pulse'
                   : 'bg-zinc-500'
@@ -188,6 +312,10 @@ export const MobileVoice: React.FC = () => {
                 ? 'Speaking…'
                 : speechState === 'thinking' || speechState === 'transcribing'
                 ? 'Thinking…'
+                : isPushToTalk
+                ? isPttActive
+                  ? 'Listening (PTT Active)…'
+                  : 'Push-to-Talk (Hold button to speak)'
                 : speechState === 'listening'
                 ? 'Listening…'
                 : 'Ready'}
@@ -208,7 +336,13 @@ export const MobileVoice: React.FC = () => {
             </p>
           ) : (
             <p className="text-xs text-zinc-500 font-mono">
-              {isMicMuted ? 'Microphone paused' : 'Listening... Speak in Hindi, Hinglish, or English'}
+              {isMicMuted
+                ? 'Microphone muted'
+                : isPushToTalk
+                ? isPttActive
+                  ? 'Listening... Release to send speech'
+                  : 'Press & hold mic button below to talk'
+                : 'Listening continuously... Speak in Hindi, Hinglish, or English'}
             </p>
           )}
         </div>
@@ -228,20 +362,51 @@ export const MobileVoice: React.FC = () => {
             {audioTtsEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
           </button>
 
-          {/* Primary Big Microphone Control (min 56px) */}
-          <button
-            onClick={toggleMicMute}
-            className={`w-16 h-16 rounded-full flex items-center justify-center transition-all shadow-xl ${
-              isMicMuted
-                ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
-                : speechState === 'listening'
-                ? 'bg-cyan-500 text-black border border-cyan-300 shadow-cyan-500/40 animate-pulse'
-                : 'bg-zinc-800 text-white border border-zinc-700'
-            }`}
-            aria-label={isMicMuted ? 'Unmute microphone' : 'Mute microphone'}
-          >
-            {isMicMuted ? <MicOff className="w-7 h-7" /> : <Mic className="w-7 h-7" />}
-          </button>
+          {/* Primary Big Microphone Control (min 56px) - PTT vs Continuous */}
+          {isPushToTalk ? (
+            <button
+              onPointerDown={startPtt}
+              onPointerUp={stopPtt}
+              onPointerCancel={stopPtt}
+              onContextMenu={(e) => e.preventDefault()}
+              className={`w-16 h-16 rounded-full flex items-center justify-center transition-all shadow-xl touch-none select-none active:scale-95 ${
+                isMicMuted
+                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40 cursor-not-allowed'
+                  : isPttActive
+                  ? 'bg-cyan-400 text-black border-2 border-cyan-200 shadow-cyan-500/50 ring-4 ring-cyan-500/30'
+                  : 'bg-zinc-800 text-white border border-zinc-700 hover:border-cyan-500/40'
+              }`}
+              aria-label={
+                isMicMuted
+                  ? 'Microphone muted'
+                  : isPttActive
+                  ? 'Release to send speech'
+                  : 'Press and hold to talk (Push-to-Talk)'
+              }
+            >
+              {isMicMuted ? (
+                <MicOff className="w-7 h-7" />
+              ) : isPttActive ? (
+                <Hand className="w-7 h-7 animate-pulse text-black" />
+              ) : (
+                <Mic className="w-7 h-7 text-cyan-400" />
+              )}
+            </button>
+          ) : (
+            <button
+              onClick={toggleMicMute}
+              className={`w-16 h-16 rounded-full flex items-center justify-center transition-all shadow-xl ${
+                isMicMuted
+                  ? 'bg-rose-500/20 text-rose-300 border border-rose-500/40'
+                  : speechState === 'listening'
+                  ? 'bg-cyan-500 text-black border border-cyan-300 shadow-cyan-500/40 animate-pulse'
+                  : 'bg-zinc-800 text-white border border-zinc-700'
+              }`}
+              aria-label={isMicMuted ? 'Unmute microphone' : 'Mute microphone'}
+            >
+              {isMicMuted ? <MicOff className="w-7 h-7" /> : <Mic className="w-7 h-7" />}
+            </button>
+          )}
 
           {/* Cancel / End Voice Control */}
           <button

@@ -310,7 +310,7 @@ export const DesktopSidebar: React.FC = () => {
                     ? 'bg-zinc-800 text-white'
                     : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/40'
                 }`}
-                title="Audit log (Native PTTY execution is Phase 2)"
+                title="Audit log (Native terminal execution is not implemented yet)"
               >
                 <Terminal className="w-3.5 h-3.5 text-zinc-400 shrink-0" />
                 <span className="truncate">Terminal Audit</span>
