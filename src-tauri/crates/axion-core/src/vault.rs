@@ -56,6 +56,9 @@ pub enum VaultError {
     #[error("Rollback for newly-created files (originally non-existent) is not implemented yet in Phase 2 Step 1")]
     NonExistentFileRollbackNotImplemented,
 
+    #[error("Secure vault mutation and restoration is not supported on Windows in Phase 2 Step 1")]
+    SecureMutationUnsupportedOnPlatform,
+
     #[error("Security violation: {0}")]
     SecurityViolation(String),
 
@@ -178,6 +181,22 @@ pub struct SecureDir {
 }
 
 impl SecureDir {
+    /// Validates that a filename/component is a single child name with no separators or traversal.
+    pub fn validate_single_child_component(name: &str) -> Result<(), VaultError> {
+        if name.is_empty()
+            || name == "."
+            || name == ".."
+            || name.contains('/')
+            || name.contains('\\')
+        {
+            return Err(VaultError::SecurityViolation(format!(
+                "Invalid child component name: '{}'",
+                name
+            )));
+        }
+        Ok(())
+    }
+
     /// Opens a trusted directory with strict no-follow directory semantics.
     pub fn open_canonical(path: &Path) -> Result<Self, VaultError> {
         let meta = fs::symlink_metadata(path)
@@ -214,8 +233,10 @@ impl SecureDir {
         #[cfg(unix)]
         {
             use std::ffi::CString;
-            let c_path = CString::new(canonical.to_string_lossy().as_bytes())
-                .map_err(|_| VaultError::SecurityViolation("Invalid path encoding".to_string()))?;
+            use std::os::unix::ffi::OsStrExt;
+
+            let c_path = CString::new(canonical.as_os_str().as_bytes())
+                .map_err(|_| VaultError::SecurityViolation("Path contains embedded NUL byte".to_string()))?;
 
             let fd = unsafe {
                 libc::open(
@@ -244,30 +265,105 @@ impl SecureDir {
         }
     }
 
-    /// Opens or traverses into a child directory anchored to this descriptor.
+    /// Opens or traverses into a child directory anchored strictly to this descriptor.
     pub fn open_or_create_child_dir(&self, name: &str) -> Result<SecureDir, VaultError> {
-        let child_path = self.path.join(name);
-
-        if !child_path.exists() {
-            fs::create_dir(&child_path).map_err(|e| {
-                VaultError::IoError(format!("Failed to create child directory {}: {}", child_path.display(), e))
-            })?;
-        }
-
-        Self::open_canonical(&child_path)
-    }
-
-    /// Creates an exclusive temporary file anchored to this directory.
-    pub fn create_exclusive_file(&self, filename: &str) -> Result<File, VaultError> {
-        let file_path = self.path.join(filename);
+        Self::validate_single_child_component(name)?;
 
         #[cfg(unix)]
         {
-            use std::ffi::CString;
-            use std::os::fd::FromRawFd;
+            use std::ffi::{CString, OsStr};
+            use std::os::unix::ffi::OsStrExt;
 
-            let c_name = CString::new(filename)
-                .map_err(|_| VaultError::SecurityViolation("Invalid filename encoding".to_string()))?;
+            let c_name = CString::new(OsStr::new(name).as_bytes())
+                .map_err(|_| VaultError::SecurityViolation("NUL byte in child directory name".to_string()))?;
+
+            // 1. Try opening existing child directory relative to parent FD with O_NOFOLLOW
+            let mut fd = unsafe {
+                libc::openat(
+                    self.raw_fd,
+                    c_name.as_ptr(),
+                    libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_RDONLY,
+                )
+            };
+
+            if fd < 0 {
+                let err = std::io::Error::last_os_error();
+                if err.raw_os_error() == Some(libc::ENOENT) {
+                    // 2. Child does not exist: create with mkdirat relative to parent FD
+                    let mkdir_res = unsafe {
+                        libc::mkdirat(self.raw_fd, c_name.as_ptr(), 0o700)
+                    };
+                    if mkdir_res != 0 {
+                        let mkdir_err = std::io::Error::last_os_error();
+                        if mkdir_err.raw_os_error() != Some(libc::EEXIST) {
+                            return Err(VaultError::IoError(format!(
+                                "mkdirat failed for child {}: errno {}",
+                                name, mkdir_err
+                            )));
+                        }
+                    }
+
+                    // 3. Open newly created or newly appeared entry relative to parent FD
+                    fd = unsafe {
+                        libc::openat(
+                            self.raw_fd,
+                            c_name.as_ptr(),
+                            libc::O_DIRECTORY | libc::O_CLOEXEC | libc::O_NOFOLLOW | libc::O_RDONLY,
+                        )
+                    };
+                }
+            }
+
+            if fd < 0 {
+                return Err(VaultError::SecurityViolation(format!(
+                    "Failed to open child directory {} relative to descriptor (symlink or non-directory rejected): errno {}",
+                    name,
+                    std::io::Error::last_os_error()
+                )));
+            }
+
+            // 4. Verify opened descriptor with fstat (must be S_ISDIR)
+            let mut st: libc::stat = unsafe { std::mem::zeroed() };
+            let fstat_res = unsafe { libc::fstat(fd, &mut st) };
+            if fstat_res != 0 || (st.st_mode & libc::S_IFMT) != libc::S_IFDIR {
+                unsafe { libc::close(fd); }
+                return Err(VaultError::SecurityViolation(format!(
+                    "Child {} is not a valid directory object",
+                    name
+                )));
+            }
+
+            let child_path = self.path.join(name);
+            Ok(Self {
+                path: child_path,
+                raw_fd: fd,
+            })
+        }
+
+        #[cfg(not(unix))]
+        {
+            let child_path = self.path.join(name);
+            if !child_path.exists() {
+                fs::create_dir(&child_path).map_err(|e| {
+                    VaultError::IoError(format!("Failed to create child directory {}: {}", child_path.display(), e))
+                })?;
+            }
+            Self::open_canonical(&child_path)
+        }
+    }
+
+    /// Creates an exclusive temporary file anchored to this directory descriptor.
+    pub fn create_exclusive_file(&self, filename: &str) -> Result<File, VaultError> {
+        Self::validate_single_child_component(filename)?;
+
+        #[cfg(unix)]
+        {
+            use std::ffi::{CString, OsStr};
+            use std::os::fd::FromRawFd;
+            use std::os::unix::ffi::OsStrExt;
+
+            let c_name = CString::new(OsStr::new(filename).as_bytes())
+                .map_err(|_| VaultError::SecurityViolation("Filename contains embedded NUL byte".to_string()))?;
 
             let fd = unsafe {
                 libc::openat(
@@ -280,7 +376,7 @@ impl SecureDir {
 
             if fd < 0 {
                 return Err(VaultError::IoError(format!(
-                    "Failed to create exclusive file {} in directory {}: {}",
+                    "Failed to create exclusive file {} in directory {}: errno {}",
                     filename,
                     self.path.display(),
                     std::io::Error::last_os_error()
@@ -292,6 +388,7 @@ impl SecureDir {
 
         #[cfg(not(unix))]
         {
+            let file_path = self.path.join(filename);
             fs::OpenOptions::new()
                 .write(true)
                 .create_new(true)
@@ -302,15 +399,20 @@ impl SecureDir {
 
     /// Atomically replaces target child file with temporary child file anchored to this directory descriptor.
     pub fn atomic_replace_child(&self, temp_filename: &str, target_filename: &str) -> Result<(), VaultError> {
+        Self::validate_single_child_component(temp_filename)?;
+        Self::validate_single_child_component(target_filename)?;
+
         trigger_test_race_hook();
 
         #[cfg(unix)]
         {
-            use std::ffi::CString;
-            let c_temp = CString::new(temp_filename)
-                .map_err(|_| VaultError::SecurityViolation("Invalid temp name encoding".to_string()))?;
-            let c_target = CString::new(target_filename)
-                .map_err(|_| VaultError::SecurityViolation("Invalid target name encoding".to_string()))?;
+            use std::ffi::{CString, OsStr};
+            use std::os::unix::ffi::OsStrExt;
+
+            let c_temp = CString::new(OsStr::new(temp_filename).as_bytes())
+                .map_err(|_| VaultError::SecurityViolation("Temp name contains embedded NUL byte".to_string()))?;
+            let c_target = CString::new(OsStr::new(target_filename).as_bytes())
+                .map_err(|_| VaultError::SecurityViolation("Target name contains embedded NUL byte".to_string()))?;
 
             let res = unsafe {
                 libc::renameat(
@@ -323,7 +425,7 @@ impl SecureDir {
 
             if res != 0 {
                 return Err(VaultError::IoError(format!(
-                    "Failed to atomically rename {} to {} in {}: {}",
+                    "Failed to atomically rename {} to {} in {}: errno {}",
                     temp_filename,
                     target_filename,
                     self.path.display(),
@@ -331,7 +433,6 @@ impl SecureDir {
                 )));
             }
 
-            // Sync directory metadata
             unsafe {
                 libc::fsync(self.raw_fd);
             }
@@ -339,73 +440,78 @@ impl SecureDir {
             Ok(())
         }
 
-        #[cfg(windows)]
+        #[cfg(not(unix))]
         {
-            use std::os::windows::ffi::OsStrExt;
-            use windows_sys::Win32::Storage::FileSystem::{
-                MoveFileExW, ReplaceFileW, MOVEFILE_REPLACE_EXISTING, MOVEFILE_WRITE_THROUGH,
-                REPLACEFILE_WRITE_THROUGH,
+            Err(VaultError::SecureMutationUnsupportedOnPlatform)
+        }
+    }
+
+    /// Performs descriptor-relative cross-directory atomic commit from `self` to `destination_dir`.
+    pub fn rename_child_to(
+        &self,
+        source_name: &str,
+        destination_dir: &SecureDir,
+        destination_name: &str,
+    ) -> Result<(), VaultError> {
+        Self::validate_single_child_component(source_name)?;
+        Self::validate_single_child_component(destination_name)?;
+
+        trigger_test_race_hook();
+
+        #[cfg(unix)]
+        {
+            use std::ffi::{CString, OsStr};
+            use std::os::unix::ffi::OsStrExt;
+
+            let c_src = CString::new(OsStr::new(source_name).as_bytes())
+                .map_err(|_| VaultError::SecurityViolation("NUL byte in source name".to_string()))?;
+            let c_dst = CString::new(OsStr::new(destination_name).as_bytes())
+                .map_err(|_| VaultError::SecurityViolation("NUL byte in destination name".to_string()))?;
+
+            let res = unsafe {
+                libc::renameat(
+                    self.raw_fd,
+                    c_src.as_ptr(),
+                    destination_dir.raw_fd,
+                    c_dst.as_ptr(),
+                )
             };
 
-            let temp_path = self.path.join(temp_filename);
-            let target_path = self.path.join(target_filename);
+            if res != 0 {
+                return Err(VaultError::IoError(format!(
+                    "Failed descriptor-relative rename of {} to {}: errno {}",
+                    source_name,
+                    destination_name,
+                    std::io::Error::last_os_error()
+                )));
+            }
 
-            let temp_w: Vec<u16> = temp_path.as_os_str().encode_wide().chain(Some(0)).collect();
-            let target_w: Vec<u16> = target_path.as_os_str().encode_wide().chain(Some(0)).collect();
-
-            if target_path.exists() {
-                let success = unsafe {
-                    ReplaceFileW(
-                        target_w.as_ptr(),
-                        temp_w.as_ptr(),
-                        std::ptr::null(),
-                        REPLACEFILE_WRITE_THROUGH,
-                        std::ptr::null_mut(),
-                        std::ptr::null_mut(),
-                    )
-                };
-
-                if success == 0 {
-                    return Err(VaultError::IoError(format!(
-                        "ReplaceFileW failed on Windows: {}",
-                        std::io::Error::last_os_error()
-                    )));
-                }
-            } else {
-                let success = unsafe {
-                    MoveFileExW(
-                        temp_w.as_ptr(),
-                        target_w.as_ptr(),
-                        MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-                    )
-                };
-
-                if success == 0 {
-                    return Err(VaultError::IoError(format!(
-                        "MoveFileExW failed on Windows: {}",
-                        std::io::Error::last_os_error()
-                    )));
-                }
+            unsafe {
+                libc::fsync(self.raw_fd);
+                libc::fsync(destination_dir.raw_fd);
             }
 
             Ok(())
         }
 
-        #[cfg(not(any(unix, windows)))]
+        #[cfg(not(unix))]
         {
-            let temp_path = self.path.join(temp_filename);
-            let target_path = self.path.join(target_filename);
-            fs::rename(&temp_path, &target_path)
-                .map_err(|e| VaultError::IoError(format!("Atomic replace fallback failed: {}", e)))
+            Err(VaultError::SecureMutationUnsupportedOnPlatform)
         }
     }
 
     /// Removes a child file safely.
     pub fn remove_child_file(&self, filename: &str) {
+        if Self::validate_single_child_component(filename).is_err() {
+            return;
+        }
+
         #[cfg(unix)]
         {
-            use std::ffi::CString;
-            if let Ok(c_name) = CString::new(filename) {
+            use std::ffi::{CString, OsStr};
+            use std::os::unix::ffi::OsStrExt;
+
+            if let Ok(c_name) = CString::new(OsStr::new(filename).as_bytes()) {
                 unsafe {
                     libc::unlinkat(self.raw_fd, c_name.as_ptr(), 0);
                 }
@@ -626,89 +732,99 @@ impl SnapshotVault {
         workspace_manager: &WorkspaceManager,
         relative_path: &str,
     ) -> Result<SnapshotMetadata, VaultError> {
-        let active_root = workspace_manager.get_active_root()?;
-        let canonical_root_str = active_root.to_string_lossy().to_string();
-
-        self.validate_vault_tree()?;
-        self.validate_workspace_isolation(active_root)?;
-
-        let trimmed_rel = relative_path.trim().replace('\\', "/");
-        if trimmed_rel.is_empty() || trimmed_rel == "." {
-            return Err(VaultError::IsADirectory(relative_path.to_string()));
+        #[cfg(not(unix))]
+        {
+            let _ = workspace_manager;
+            let _ = relative_path;
+            return Err(VaultError::SecureMutationUnsupportedOnPlatform);
         }
 
-        let validation_res = workspace_manager.resolve_and_validate_path(&trimmed_rel);
+        #[cfg(unix)]
+        {
+            let active_root = workspace_manager.get_active_root()?;
+            let canonical_root_str = active_root.to_string_lossy().to_string();
 
-        let (file_existed, file_bytes, sha256_hash, size_bytes) = match validation_res {
-            Ok(resolved_path) => {
-                let meta = fs::symlink_metadata(&resolved_path)
-                    .map_err(|e| VaultError::IoError(format!("Failed to read file metadata: {}", e)))?;
-                if meta.is_dir() {
-                    return Err(VaultError::IsADirectory(trimmed_rel));
-                }
-                if meta.file_type().is_symlink() {
-                    let canon = fs::canonicalize(&resolved_path).map_err(|e| {
-                        VaultError::SecurityViolation(format!("Failed to canonicalize target symlink: {}", e))
-                    })?;
-                    if !canon.starts_with(active_root) {
-                        return Err(VaultError::SecurityViolation(format!(
-                            "Source symlink escapes workspace root: {}",
-                            trimmed_rel
-                        )));
+            self.validate_vault_tree()?;
+            self.validate_workspace_isolation(active_root)?;
+
+            let trimmed_rel = relative_path.trim().replace('\\', "/");
+            if trimmed_rel.is_empty() || trimmed_rel == "." {
+                return Err(VaultError::IsADirectory(relative_path.to_string()));
+            }
+
+            let validation_res = workspace_manager.resolve_and_validate_path(&trimmed_rel);
+
+            let (file_existed, file_bytes, sha256_hash, size_bytes) = match validation_res {
+                Ok(resolved_path) => {
+                    let meta = fs::symlink_metadata(&resolved_path)
+                        .map_err(|e| VaultError::IoError(format!("Failed to read file metadata: {}", e)))?;
+                    if meta.is_dir() {
+                        return Err(VaultError::IsADirectory(trimmed_rel));
                     }
+                    if meta.file_type().is_symlink() {
+                        let canon = fs::canonicalize(&resolved_path).map_err(|e| {
+                            VaultError::SecurityViolation(format!("Failed to canonicalize target symlink: {}", e))
+                        })?;
+                        if !canon.starts_with(active_root) {
+                            return Err(VaultError::SecurityViolation(format!(
+                                "Source symlink escapes workspace root: {}",
+                                trimmed_rel
+                            )));
+                        }
+                    }
+
+                    let bytes = fs::read(&resolved_path)
+                        .map_err(|e| VaultError::IoError(format!("Failed to read source file: {}", e)))?;
+                    let hash = format!("{:x}", Sha256::digest(&bytes));
+                    let len = bytes.len() as u64;
+
+                    (true, Some(bytes), Some(hash), len)
                 }
+                Err(WorkspaceError::FileNotFound(_)) => (false, None, None, 0u64),
+                Err(WorkspaceError::SecurityEscapeViolation { target, root }) => {
+                    return Err(VaultError::SecurityViolation(format!(
+                        "Path '{}' escapes canonical workspace root '{}'",
+                        target, root
+                    )));
+                }
+                Err(e) => return Err(VaultError::from(e)),
+            };
 
-                let bytes = fs::read(&resolved_path)
-                    .map_err(|e| VaultError::IoError(format!("Failed to read source file: {}", e)))?;
-                let hash = format!("{:x}", Sha256::digest(&bytes));
-                let len = bytes.len() as u64;
+            let now_ms = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0);
 
-                (true, Some(bytes), Some(hash), len)
-            }
-            Err(WorkspaceError::FileNotFound(_)) => (false, None, None, 0u64),
-            Err(WorkspaceError::SecurityEscapeViolation { target, root }) => {
-                return Err(VaultError::SecurityViolation(format!(
-                    "Path '{}' escapes canonical workspace root '{}'",
-                    target, root
-                )));
-            }
-            Err(e) => return Err(VaultError::from(e)),
-        };
+            let snapshot_id = Self::generate_snapshot_id()?;
 
-        let now_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
+            let auth_payload = Self::canonical_auth_payload(
+                CURRENT_SCHEMA_VERSION,
+                &snapshot_id,
+                &canonical_root_str,
+                &trimmed_rel,
+                file_existed,
+                now_ms,
+                size_bytes,
+                sha256_hash.as_deref(),
+            );
+            let hmac_sig = Self::compute_hmac_hex(self.auth_key.as_bytes(), &auth_payload)?;
 
-        let snapshot_id = Self::generate_snapshot_id()?;
+            let metadata = SnapshotMetadata {
+                schema_version: CURRENT_SCHEMA_VERSION,
+                id: snapshot_id,
+                workspace_root: canonical_root_str,
+                relative_path: trimmed_rel,
+                file_existed,
+                created_at_ms: now_ms,
+                size_bytes,
+                sha256_hash,
+                hmac_signature: hmac_sig,
+            };
 
-        let auth_payload = Self::canonical_auth_payload(
-            CURRENT_SCHEMA_VERSION,
-            &snapshot_id,
-            &canonical_root_str,
-            &trimmed_rel,
-            file_existed,
-            now_ms,
-            size_bytes,
-            sha256_hash.as_deref(),
-        );
-        let hmac_sig = Self::compute_hmac_hex(self.auth_key.as_bytes(), &auth_payload)?;
+            self.persist_snapshot_atomic(&metadata, file_bytes.as_deref())?;
 
-        let metadata = SnapshotMetadata {
-            schema_version: CURRENT_SCHEMA_VERSION,
-            id: snapshot_id,
-            workspace_root: canonical_root_str,
-            relative_path: trimmed_rel,
-            file_existed,
-            created_at_ms: now_ms,
-            size_bytes,
-            sha256_hash,
-            hmac_signature: hmac_sig,
-        };
-
-        self.persist_snapshot_atomic(&metadata, file_bytes.as_deref())?;
-
-        Ok(metadata)
+            Ok(metadata)
+        }
     }
 
     /// Retrieves and verifies trusted snapshot metadata by ID.
@@ -791,128 +907,138 @@ impl SnapshotVault {
         workspace_manager: &WorkspaceManager,
         snapshot_id: &str,
     ) -> Result<SnapshotMetadata, VaultError> {
-        Self::validate_snapshot_id(snapshot_id)?;
-        self.validate_vault_tree()?;
-
-        let metadata = self.get_snapshot_metadata(snapshot_id)?;
-
-        if metadata.schema_version != CURRENT_SCHEMA_VERSION {
-            return Err(VaultError::UnsupportedSchemaVersion(
-                metadata.schema_version,
-                snapshot_id.to_string(),
-            ));
+        #[cfg(not(unix))]
+        {
+            let _ = workspace_manager;
+            let _ = snapshot_id;
+            return Err(VaultError::SecureMutationUnsupportedOnPlatform);
         }
 
-        let active_root = workspace_manager.get_active_root()?;
-        let canonical_active_root = fs::canonicalize(active_root)
-            .map_err(|e| VaultError::IoError(format!("Failed to canonicalize active root: {}", e)))?;
+        #[cfg(unix)]
+        {
+            Self::validate_snapshot_id(snapshot_id)?;
+            self.validate_vault_tree()?;
 
-        self.validate_workspace_isolation(&canonical_active_root)?;
+            let metadata = self.get_snapshot_metadata(snapshot_id)?;
 
-        let expected_root_path = PathBuf::from(&metadata.workspace_root);
-        let canonical_expected_root = if expected_root_path.exists() {
-            fs::canonicalize(&expected_root_path).unwrap_or(expected_root_path)
-        } else {
-            expected_root_path
-        };
+            if metadata.schema_version != CURRENT_SCHEMA_VERSION {
+                return Err(VaultError::UnsupportedSchemaVersion(
+                    metadata.schema_version,
+                    snapshot_id.to_string(),
+                ));
+            }
 
-        if canonical_active_root != canonical_expected_root {
-            return Err(VaultError::WorkspaceMismatch {
-                id: snapshot_id.to_string(),
-                expected_root: metadata.workspace_root.clone(),
-                active_root: canonical_active_root.to_string_lossy().to_string(),
-            });
-        }
+            let active_root = workspace_manager.get_active_root()?;
+            let canonical_active_root = fs::canonicalize(active_root)
+                .map_err(|e| VaultError::IoError(format!("Failed to canonicalize active root: {}", e)))?;
 
-        if !metadata.file_existed {
-            return Err(VaultError::NonExistentFileRollbackNotImplemented);
-        }
+            self.validate_workspace_isolation(&canonical_active_root)?;
 
-        let data_file = self.vault_root.join("snapshots").join(format!("{}.data", snapshot_id));
-        if !data_file.exists() {
-            return Err(VaultError::IoError(format!(
-                "Snapshot content payload missing for ID: {}",
-                snapshot_id
-            )));
-        }
+            let expected_root_path = PathBuf::from(&metadata.workspace_root);
+            let canonical_expected_root = if expected_root_path.exists() {
+                fs::canonicalize(&expected_root_path).unwrap_or(expected_root_path)
+            } else {
+                expected_root_path
+            };
 
-        let data_sym = fs::symlink_metadata(&data_file)
-            .map_err(|e| VaultError::IoError(format!("Cannot inspect snapshot data file: {}", e)))?;
-        if data_sym.file_type().is_symlink() {
-            return Err(VaultError::SecurityViolation(
-                "Snapshot payload data file is a symlink (rejected)".to_string(),
-            ));
-        }
+            if canonical_active_root != canonical_expected_root {
+                return Err(VaultError::WorkspaceMismatch {
+                    id: snapshot_id.to_string(),
+                    expected_root: metadata.workspace_root.clone(),
+                    active_root: canonical_active_root.to_string_lossy().to_string(),
+                });
+            }
 
-        let stored_bytes = fs::read(&data_file)
-            .map_err(|e| VaultError::IoError(format!("Failed to read snapshot data: {}", e)))?;
+            if !metadata.file_existed {
+                return Err(VaultError::NonExistentFileRollbackNotImplemented);
+            }
 
-        if stored_bytes.len() as u64 != metadata.size_bytes {
-            return Err(VaultError::IntegrityMismatch {
-                id: snapshot_id.to_string(),
-                expected: format!("size {} bytes", metadata.size_bytes),
-                computed: format!("size {} bytes", stored_bytes.len()),
-            });
-        }
+            let data_file = self.vault_root.join("snapshots").join(format!("{}.data", snapshot_id));
+            if !data_file.exists() {
+                return Err(VaultError::IoError(format!(
+                    "Snapshot content payload missing for ID: {}",
+                    snapshot_id
+                )));
+            }
 
-        let computed_hash = format!("{:x}", Sha256::digest(&stored_bytes));
-        match metadata.sha256_hash {
-            Some(ref expected_hash) => {
-                if &computed_hash != expected_hash {
+            let data_sym = fs::symlink_metadata(&data_file)
+                .map_err(|e| VaultError::IoError(format!("Cannot inspect snapshot data file: {}", e)))?;
+            if data_sym.file_type().is_symlink() {
+                return Err(VaultError::SecurityViolation(
+                    "Snapshot payload data file is a symlink (rejected)".to_string(),
+                ));
+            }
+
+            let stored_bytes = fs::read(&data_file)
+                .map_err(|e| VaultError::IoError(format!("Failed to read snapshot data: {}", e)))?;
+
+            if stored_bytes.len() as u64 != metadata.size_bytes {
+                return Err(VaultError::IntegrityMismatch {
+                    id: snapshot_id.to_string(),
+                    expected: format!("size {} bytes", metadata.size_bytes),
+                    computed: format!("size {} bytes", stored_bytes.len()),
+                });
+            }
+
+            let computed_hash = format!("{:x}", Sha256::digest(&stored_bytes));
+            match metadata.sha256_hash {
+                Some(ref expected_hash) => {
+                    if &computed_hash != expected_hash {
+                        return Err(VaultError::IntegrityMismatch {
+                            id: snapshot_id.to_string(),
+                            expected: expected_hash.clone(),
+                            computed: computed_hash,
+                        });
+                    }
+                }
+                None => {
                     return Err(VaultError::IntegrityMismatch {
                         id: snapshot_id.to_string(),
-                        expected: expected_hash.clone(),
-                        computed: computed_hash,
+                        expected: "Valid SHA-256 hash in metadata".to_string(),
+                        computed: "No hash recorded".to_string(),
                     });
                 }
             }
-            None => {
-                return Err(VaultError::IntegrityMismatch {
-                    id: snapshot_id.to_string(),
-                    expected: "Valid SHA-256 hash in metadata".to_string(),
-                    computed: "No hash recorded".to_string(),
-                });
+
+            // Open secure handle anchored to destination directory
+            let (secure_parent, target_file_name) =
+                Self::traverse_and_open_parent_dir(&canonical_active_root, &metadata.relative_path)?;
+
+            let random_suffix = Self::generate_random_hex_16()?;
+            let temp_filename = format!(".axion_restore_{}_{}.tmp", snapshot_id, random_suffix);
+
+            // Exclusive write into temp file anchored in secure_parent descriptor
+            let mut temp_file = secure_parent.create_exclusive_file(&temp_filename)?;
+            let write_res = temp_file
+                .write_all(&stored_bytes)
+                .and_then(|_| temp_file.sync_all());
+
+            if let Err(e) = write_res {
+                secure_parent.remove_child_file(&temp_filename);
+                return Err(VaultError::IoError(format!("Failed to write restored temp file: {}", e)));
             }
+            drop(temp_file);
+
+            // Perform race-resistant atomic replace anchored to directory descriptor
+            if let Err(e) = secure_parent.atomic_replace_child(&temp_filename, &target_file_name) {
+                secure_parent.remove_child_file(&temp_filename);
+                return Err(e);
+            }
+
+            // Verify that restored file exists and matches size
+            let final_path = secure_parent.path.join(&target_file_name);
+            let verify_meta = fs::metadata(&final_path)
+                .map_err(|e| VaultError::IoError(format!("Failed to verify restored file: {}", e)))?;
+            if verify_meta.len() != metadata.size_bytes {
+                return Err(VaultError::IoError(format!(
+                    "Restored file size mismatch: expected {} bytes, found {}",
+                    metadata.size_bytes,
+                    verify_meta.len()
+                )));
+            }
+
+            Ok(metadata)
         }
-
-        // Open secure handle anchored to destination directory
-        let (secure_parent, target_file_name) =
-            Self::traverse_and_open_parent_dir(&canonical_active_root, &metadata.relative_path)?;
-
-        let random_suffix = Self::generate_random_hex_16()?;
-        let temp_filename = format!(".axion_restore_{}_{}.tmp", snapshot_id, random_suffix);
-
-        // Exclusive write into temp file anchored in secure_parent
-        let mut temp_file = secure_parent.create_exclusive_file(&temp_filename)?;
-        let write_res = temp_file
-            .write_all(&stored_bytes)
-            .and_then(|_| temp_file.sync_all());
-
-        if let Err(e) = write_res {
-            secure_parent.remove_child_file(&temp_filename);
-            return Err(VaultError::IoError(format!("Failed to write restored temp file: {}", e)));
-        }
-        drop(temp_file);
-
-        // Perform race-resistant atomic replace
-        if let Err(e) = secure_parent.atomic_replace_child(&temp_filename, &target_file_name) {
-            secure_parent.remove_child_file(&temp_filename);
-            return Err(e);
-        }
-
-        // Verify that restored file exists and matches size
-        let final_path = secure_parent.path.join(&target_file_name);
-        let verify_meta = fs::metadata(&final_path)
-            .map_err(|e| VaultError::IoError(format!("Failed to verify restored file: {}", e)))?;
-        if verify_meta.len() != metadata.size_bytes {
-            return Err(VaultError::IoError(format!(
-                "Restored file size mismatch: expected {} bytes, found {}",
-                metadata.size_bytes,
-                verify_meta.len()
-            )));
-        }
-
-        Ok(metadata)
     }
 
     fn validate_vault_tree(&self) -> Result<(), VaultError> {
@@ -952,61 +1078,63 @@ impl SnapshotVault {
         Ok(())
     }
 
-    /// Transactionally persists snapshot data and metadata.
+    /// Transactionally persists snapshot data and metadata using cross-directory descriptor-relative renameat.
     pub fn persist_snapshot_atomic(
         &self,
         meta: &SnapshotMetadata,
         content_bytes: Option<&[u8]>,
     ) -> Result<(), VaultError> {
-        let snapshots_secure = SecureDir::open_canonical(&self.vault_root.join("snapshots"))?;
-        let tmp_secure = SecureDir::open_canonical(&self.vault_root.join("tmp"))?;
-
-        let tmp_data_name = format!("{}.data.tmp", meta.id);
-        let tmp_meta_name = format!("{}.meta.json.tmp", meta.id);
-        let final_data_name = format!("{}.data", meta.id);
-        let final_meta_name = format!("{}.meta.json", meta.id);
-
-        if snapshots_secure.path.join(&final_meta_name).exists()
-            || snapshots_secure.path.join(&final_data_name).exists()
+        #[cfg(not(unix))]
         {
-            return Err(VaultError::SnapshotCollision(meta.id.clone()));
+            let _ = meta;
+            let _ = content_bytes;
+            return Err(VaultError::SecureMutationUnsupportedOnPlatform);
         }
 
-        // 1. Write payload
-        if let Some(bytes) = content_bytes {
-            let mut f = tmp_secure.create_exclusive_file(&tmp_data_name)?;
-            f.write_all(bytes)
-                .and_then(|_| f.sync_all())
-                .map_err(|e| VaultError::IoError(format!("Failed to write tmp snapshot data: {}", e)))?;
-            drop(f);
+        #[cfg(unix)]
+        {
+            let snapshots_secure = SecureDir::open_canonical(&self.vault_root.join("snapshots"))?;
+            let tmp_secure = SecureDir::open_canonical(&self.vault_root.join("tmp"))?;
 
-            // Commit data payload
-            fs::rename(
-                tmp_secure.path.join(&tmp_data_name),
-                snapshots_secure.path.join(&final_data_name),
-            )
-            .map_err(|e| VaultError::IoError(format!("Failed to commit snapshot data: {}", e)))?;
+            let tmp_data_name = format!("{}.data.tmp", meta.id);
+            let tmp_meta_name = format!("{}.meta.json.tmp", meta.id);
+            let final_data_name = format!("{}.data", meta.id);
+            let final_meta_name = format!("{}.meta.json", meta.id);
+
+            if snapshots_secure.path.join(&final_meta_name).exists()
+                || snapshots_secure.path.join(&final_data_name).exists()
+            {
+                return Err(VaultError::SnapshotCollision(meta.id.clone()));
+            }
+
+            // 1. Write payload into tmp/ descriptor
+            if let Some(bytes) = content_bytes {
+                let mut f = tmp_secure.create_exclusive_file(&tmp_data_name)?;
+                f.write_all(bytes)
+                    .and_then(|_| f.sync_all())
+                    .map_err(|e| VaultError::IoError(format!("Failed to write tmp snapshot data: {}", e)))?;
+                drop(f);
+
+                // Commit data payload via descriptor-relative renameat (tmp_fd -> snapshots_fd)
+                tmp_secure.rename_child_to(&tmp_data_name, &snapshots_secure, &final_data_name)?;
+            }
+
+            // 2. Write metadata JSON into tmp/ descriptor
+            let meta_json = serde_json::to_string_pretty(meta)
+                .map_err(|e| VaultError::IoError(format!("Failed to serialize metadata: {}", e)))?;
+
+            let mut f_meta = tmp_secure.create_exclusive_file(&tmp_meta_name)?;
+            f_meta
+                .write_all(meta_json.as_bytes())
+                .and_then(|_| f_meta.sync_all())
+                .map_err(|e| VaultError::IoError(format!("Failed to write tmp snapshot meta: {}", e)))?;
+            drop(f_meta);
+
+            // 3. Commit metadata JSON via descriptor-relative renameat (the authoritative validity marker)
+            tmp_secure.rename_child_to(&tmp_meta_name, &snapshots_secure, &final_meta_name)?;
+
+            Ok(())
         }
-
-        // 2. Write metadata JSON
-        let meta_json = serde_json::to_string_pretty(meta)
-            .map_err(|e| VaultError::IoError(format!("Failed to serialize metadata: {}", e)))?;
-
-        let mut f_meta = tmp_secure.create_exclusive_file(&tmp_meta_name)?;
-        f_meta
-            .write_all(meta_json.as_bytes())
-            .and_then(|_| f_meta.sync_all())
-            .map_err(|e| VaultError::IoError(format!("Failed to write tmp snapshot meta: {}", e)))?;
-        drop(f_meta);
-
-        // 3. Commit metadata JSON (authoritative validity marker)
-        fs::rename(
-            tmp_secure.path.join(&tmp_meta_name),
-            snapshots_secure.path.join(&final_meta_name),
-        )
-        .map_err(|e| VaultError::IoError(format!("Failed to commit snapshot metadata: {}", e)))?;
-
-        Ok(())
     }
 
     /// Traverses and opens the target directory handle anchored securely from the canonical root.
