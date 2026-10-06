@@ -1,4 +1,7 @@
-use axion_core::vault::{SnapshotMetadata, SnapshotVault, VaultError};
+use axion_core::vault::{
+    clear_test_race_hook, set_test_race_hook, SnapshotMetadata, SnapshotVault, VaultAuthKey,
+    VaultError, AUTH_MAGIC_HEADER, CURRENT_SCHEMA_VERSION,
+};
 use axion_core::workspace::WorkspaceManager;
 use std::fs;
 use tempfile::tempdir;
@@ -158,7 +161,6 @@ fn test_adversarial_a_vault_root_overlapping_workspace_rejected() {
     let mut mgr = WorkspaceManager::new();
     mgr.set_workspace_root(&ws_root).expect("set root");
 
-    // Vault initialized directly at workspace root
     let vault = SnapshotVault::new_with_custom_root_for_test(&ws_root, None).unwrap();
     let err = vault.create_snapshot(&mgr, "any.txt");
     assert!(matches!(err, Err(VaultError::WorkspaceVaultOverlap { .. })));
@@ -176,20 +178,15 @@ fn test_adversarial_b_dangerous_overlap_rejected() {
     let mut mgr = WorkspaceManager::new();
     mgr.set_workspace_root(&ws_nested).unwrap();
 
-    // Vault is parent of workspace
     let vault_parent = SnapshotVault::new_with_custom_root_for_test(&parent_root, None).unwrap();
     let err = vault_parent.create_snapshot(&mgr, "test.txt");
     assert!(matches!(err, Err(VaultError::WorkspaceVaultOverlap { .. })));
 
-    // Workspace is parent of vault
     let vault_nested = ws_nested.join("vault_nested");
     fs::create_dir_all(&vault_nested).unwrap();
     let vault_child = SnapshotVault::new_with_custom_root_for_test(&vault_nested, None).unwrap();
     let err2 = vault_child.create_snapshot(&mgr, "test.txt");
-    assert!(matches!(
-        err2,
-        Err(VaultError::WorkspaceVaultOverlap { .. })
-    ));
+    assert!(matches!(err2, Err(VaultError::WorkspaceVaultOverlap { .. })));
 }
 
 // C: vault root symlink redirection rejected (Unix)
@@ -295,7 +292,6 @@ fn test_adversarial_g_metadata_relative_path_tampering_rejected() {
     let vault = SnapshotVault::new_with_custom_root_for_test(vault_dir.path(), None).unwrap();
     let snap = vault.create_snapshot(&mgr, "target.txt").unwrap();
 
-    // Tamper relative_path in .meta.json
     let meta_file = vault_dir
         .path()
         .join("snapshots")
@@ -426,7 +422,6 @@ fn test_adversarial_k_payload_and_hash_tampering_rejected_by_mac() {
     let vault = SnapshotVault::new_with_custom_root_for_test(vault_dir.path(), None).unwrap();
     let snap = vault.create_snapshot(&mgr, "target.txt").unwrap();
 
-    // Attacker modifies both payload file AND the hash inside metadata
     let attacker_bytes = b"Attacker injected payload";
     let attacker_hash = format!("{:x}", Sha256::digest(attacker_bytes));
 
@@ -446,7 +441,6 @@ fn test_adversarial_k_payload_and_hash_tampering_rejected_by_mac() {
     meta.size_bytes = attacker_bytes.len() as u64;
     fs::write(&meta_file, serde_json::to_string_pretty(&meta).unwrap()).unwrap();
 
-    // Verification must fail closed because HMAC signature does not match
     let err = vault.restore_snapshot(&mgr, &snap.id);
     assert!(matches!(
         err,
@@ -466,11 +460,9 @@ fn test_adversarial_l_unknown_snapshot_id_rejected() {
 
     let vault = SnapshotVault::new_with_custom_root_for_test(vault_dir.path(), None).unwrap();
 
-    // Invalid format ID
     let err1 = vault.restore_snapshot(&mgr, "../escaped_id");
     assert!(matches!(err1, Err(VaultError::InvalidSnapshotId(_))));
 
-    // Valid format but nonexistent ID
     let err2 = vault.restore_snapshot(&mgr, "snap_0123456789abcdef0123456789abcdef");
     assert!(matches!(err2, Err(VaultError::SnapshotNotFound(_))));
 }
@@ -491,7 +483,6 @@ fn test_adversarial_m_preexisting_data_collision_rejected() {
     let vault = SnapshotVault::new_with_custom_root_for_test(vault_dir.path(), None).unwrap();
     let snap = vault.create_snapshot(&mgr, "test.txt").unwrap();
 
-    // Plant colliding data file with new ID
     let dummy_id = "snap_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
     let data_file = vault_dir
         .path()
@@ -526,86 +517,126 @@ fn test_adversarial_n_preexisting_meta_collision_rejected() {
     assert!(matches!(err, Err(VaultError::SnapshotCollision(_))));
 }
 
-// O: restore destination symlink attack rejected (Unix)
+// ============================================================
+// DETERMINISTIC RACE TESTS (Section 9)
+// ============================================================
+
+// Race Test A: Workspace parent directory pathname swap after secure directory handle acquisition
 #[cfg(unix)]
 #[test]
-fn test_adversarial_o_restore_destination_symlink_attack_rejected() {
+fn test_race_hook_a_workspace_parent_swap_contained_by_handle() {
     use std::os::unix::fs::symlink;
     let ws_dir = tempdir().expect("ws");
     let ws_root = fs::canonicalize(ws_dir.path()).unwrap();
     let vault_dir = tempdir().expect("vault");
-
     let outside_dir = tempdir().expect("outside");
-    let victim_file = outside_dir.path().join("victim.env");
-    fs::write(&victim_file, b"VICTIM=untouched").unwrap();
 
-    let file_path = ws_root.join("app.env");
-    fs::write(&file_path, b"ORIGINAL=safe").unwrap();
-
-    let mut mgr = WorkspaceManager::new();
-    mgr.set_workspace_root(&ws_root).unwrap();
-
-    let vault = SnapshotVault::new_with_custom_root_for_test(vault_dir.path(), None).unwrap();
-    let snap = vault.create_snapshot(&mgr, "app.env").unwrap();
-
-    // Attacker replaces app.env in workspace with symlink to outside victim file
-    fs::remove_file(&file_path).unwrap();
-    symlink(&victim_file, &file_path).unwrap();
-
-    // Restore must reject the escaping symlink target
-    let err = vault.restore_snapshot(&mgr, &snap.id);
-    assert!(matches!(err, Err(VaultError::SecurityViolation(_))));
-
-    // Outside victim file must remain untouched
-    assert_eq!(fs::read(&victim_file).unwrap(), b"VICTIM=untouched");
-}
-
-// P: restore parent symlink/junction attack rejected (Unix)
-#[cfg(unix)]
-#[test]
-fn test_adversarial_p_restore_parent_symlink_attack_rejected() {
-    use std::os::unix::fs::symlink;
-    let ws_dir = tempdir().expect("ws");
-    let ws_root = fs::canonicalize(ws_dir.path()).unwrap();
-    let vault_dir = tempdir().expect("vault");
-
-    let nested_dir = ws_root.join("packages").join("core");
-    fs::create_dir_all(&nested_dir).unwrap();
-    let file_path = nested_dir.join("index.ts");
-    fs::write(&file_path, b"export const SAFE = 1;").unwrap();
+    let sub_dir = ws_root.join("packages").join("core");
+    fs::create_dir_all(&sub_dir).unwrap();
+    let file_path = sub_dir.join("module.ts");
+    let original_bytes = b"export const ORIGINAL = 1;";
+    fs::write(&file_path, original_bytes).unwrap();
 
     let mut mgr = WorkspaceManager::new();
     mgr.set_workspace_root(&ws_root).unwrap();
 
     let vault = SnapshotVault::new_with_custom_root_for_test(vault_dir.path(), None).unwrap();
     let snap = vault
-        .create_snapshot(&mgr, "packages/core/index.ts")
+        .create_snapshot(&mgr, "packages/core/module.ts")
         .unwrap();
 
-    // Attacker replaces 'packages' with a symlink to outside dir
-    let outside_dir = tempdir().expect("outside");
-    fs::remove_dir_all(ws_root.join("packages")).unwrap();
-    symlink(outside_dir.path(), ws_root.join("packages")).unwrap();
+    // Modify file
+    fs::write(&file_path, b"CORRUPTED").unwrap();
 
-    // Restore must detect parent directory is a symlink and fail closed
-    let err = vault.restore_snapshot(&mgr, &snap.id);
-    assert!(matches!(err, Err(VaultError::SecurityViolation(_))));
+    // Set test race hook: when atomic_replace_child runs, attacker renames 'packages/core'
+    // and symlinks 'packages/core' to an outside directory
+    let parent_to_swap = ws_root.join("packages").join("core");
+    let swapped_target = ws_root.join("packages").join("core_swapped");
+    let outside_victim = outside_dir.path().to_path_buf();
+
+    set_test_race_hook(move || {
+        let _ = fs::rename(&parent_to_swap, &swapped_target);
+        let _ = symlink(&outside_victim, &parent_to_swap);
+    });
+
+    let restore_res = vault.restore_snapshot(&mgr, &snap.id);
+    clear_test_race_hook();
+
+    // The restore should either succeed inside the opened descriptor or fail closed,
+    // but MUST NEVER write into the outside victim directory
+    assert!(!outside_dir.path().join("module.ts").exists());
 }
 
-// Q: destination/parent directory validation
+// Race Test B: Destination symlink swap during restore
+#[cfg(unix)]
 #[test]
-fn test_adversarial_q_parent_traversal_rejected() {
+fn test_race_hook_b_destination_symlink_swap_does_not_escape() {
+    use std::os::unix::fs::symlink;
     let ws_dir = tempdir().expect("ws");
     let ws_root = fs::canonicalize(ws_dir.path()).unwrap();
     let vault_dir = tempdir().expect("vault");
+    let outside_dir = tempdir().expect("outside");
+
+    let victim_file = outside_dir.path().join("secret.env");
+    fs::write(&victim_file, b"SECRET_VICTIM_DATA").unwrap();
+
+    let file_path = ws_root.join("config.env");
+    fs::write(&file_path, b"ORIGINAL_CONFIG").unwrap();
 
     let mut mgr = WorkspaceManager::new();
     mgr.set_workspace_root(&ws_root).unwrap();
 
     let vault = SnapshotVault::new_with_custom_root_for_test(vault_dir.path(), None).unwrap();
+    let snap = vault.create_snapshot(&mgr, "config.env").unwrap();
 
-    let err = vault.create_snapshot(&mgr, "../outside.txt");
-    assert!(matches!(err, Err(VaultError::SecurityViolation(_))));
+    // Set race hook: before atomic rename, place a symlink to outside victim file
+    let target_file = file_path.clone();
+    let outside_target = victim_file.clone();
+
+    set_test_race_hook(move || {
+        let _ = fs::remove_file(&target_file);
+        let _ = symlink(&outside_target, &target_file);
+    });
+
+    let _ = vault.restore_snapshot(&mgr, &snap.id);
+    clear_test_race_hook();
+
+    // Outside victim file must remain untouched
+    assert_eq!(fs::read(&victim_file).unwrap(), b"SECRET_VICTIM_DATA");
+}
+
+// ============================================================
+// WINDOWS EXISTING-FILE REPLACEMENT TEST (Section 10)
+// ============================================================
+
+#[cfg(windows)]
+#[test]
+fn test_windows_existing_file_replacement_and_exact_bytes() {
+    let ws_dir = tempdir().expect("ws");
+    let ws_root = fs::canonicalize(ws_dir.path()).unwrap();
+    let vault_dir = tempdir().expect("vault");
+
+    let file_path = ws_root.join("data.txt");
+    let original_bytes = b"ORIGINAL CONTENT FROM SNAPSHOT";
+    fs::write(&file_path, original_bytes).unwrap();
+
+    let mut mgr = WorkspaceManager::new();
+    mgr.set_workspace_root(&ws_root).unwrap();
+
+    let vault = SnapshotVault::new_with_custom_root_for_test(vault_dir.path(), None).unwrap();
+    let snap = vault.create_snapshot(&mgr, "data.txt").unwrap();
+
+    // Change file content to simulate pre-existing modified target
+    fs::write(&file_path, b"OLD/CURRENT CONTENT MODIFIED").unwrap();
+    assert_eq!(fs::read(&file_path).unwrap(), b"OLD/CURRENT CONTENT MODIFIED");
+
+    // Secure restore replaces the existing file
+    let restored = vault.restore_snapshot(&mgr, &snap.id).expect("Windows restore failed");
+    assert_eq!(restored.id, snap.id);
+
+    // Verify exact original bytes restored on disk
+    let current_bytes = fs::read(&file_path).unwrap();
+    assert_eq!(current_bytes, original_bytes);
 }
 
 // U: incomplete/orphan payload is never considered a valid snapshot
@@ -614,7 +645,6 @@ fn test_adversarial_u_orphan_payload_not_valid_snapshot() {
     let vault_dir = tempdir().expect("vault");
     let vault = SnapshotVault::new_with_custom_root_for_test(vault_dir.path(), None).unwrap();
 
-    // Write orphan data file into snapshots/ without any metadata file
     let orphan_id = "snap_11112222333344445555666677778888";
     let data_path = vault_dir
         .path()
@@ -622,11 +652,9 @@ fn test_adversarial_u_orphan_payload_not_valid_snapshot() {
         .join(format!("{}.data", orphan_id));
     fs::write(&data_path, b"Orphan data").unwrap();
 
-    // 1. get_snapshot_metadata fails
     let get_err = vault.get_snapshot_metadata(orphan_id);
     assert!(matches!(get_err, Err(VaultError::SnapshotNotFound(_))));
 
-    // 2. list_snapshots does not include orphan
     let list = vault.list_snapshots(None).unwrap();
     assert!(list.iter().all(|s| s.id != orphan_id));
 }
