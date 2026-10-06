@@ -14,6 +14,8 @@ target/
 **/target/
 src-tauri/target/
 src-tauri/crates/*/target/
+.cargo_toolchain/
+.rustup_toolchain/
 
 # Tauri generated files
 src-tauri/gen/

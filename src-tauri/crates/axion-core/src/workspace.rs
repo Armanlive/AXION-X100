@@ -139,6 +139,11 @@ impl WorkspaceManager {
         self.active_root = None;
     }
 
+    /// Returns the active canonical workspace root path if authorized.
+    pub fn get_active_root(&self) -> Result<&Path, WorkspaceError> {
+        self.active_root.as_deref().ok_or(WorkspaceError::NoActiveWorkspace)
+    }
+
     /// Resolves and validates a target path strictly within the active workspace root.
     pub fn resolve_and_validate_path(&self, requested: &str) -> Result<PathBuf, WorkspaceError> {
         let root = self.active_root.as_ref().ok_or(WorkspaceError::NoActiveWorkspace)?;
