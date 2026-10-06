@@ -82,14 +82,20 @@ impl WorkspaceManager {
     }
 
     /// Sets and canonicalizes the active workspace root.
-    pub fn set_workspace_root<P: AsRef<Path>>(&mut self, path: P) -> Result<WorkspaceInfo, WorkspaceError> {
+    pub fn set_workspace_root<P: AsRef<Path>>(
+        &mut self,
+        path: P,
+    ) -> Result<WorkspaceInfo, WorkspaceError> {
         let p = path.as_ref();
         if !p.exists() || !p.is_dir() {
-            return Err(WorkspaceError::InvalidWorkspacePath(p.to_string_lossy().to_string()));
+            return Err(WorkspaceError::InvalidWorkspacePath(
+                p.to_string_lossy().to_string(),
+            ));
         }
 
-        let canonical = fs::canonicalize(p)
-            .map_err(|e| WorkspaceError::IoError(format!("Failed to canonicalize workspace root: {}", e)))?;
+        let canonical = fs::canonicalize(p).map_err(|e| {
+            WorkspaceError::IoError(format!("Failed to canonicalize workspace root: {}", e))
+        })?;
 
         let name = canonical
             .file_name()
@@ -114,7 +120,10 @@ impl WorkspaceManager {
 
     /// Returns the active workspace info if one is set.
     pub fn get_workspace_info(&self) -> Result<WorkspaceInfo, WorkspaceError> {
-        let root = self.active_root.as_ref().ok_or(WorkspaceError::NoActiveWorkspace)?;
+        let root = self
+            .active_root
+            .as_ref()
+            .ok_or(WorkspaceError::NoActiveWorkspace)?;
         let name = root
             .file_name()
             .map(|n| n.to_string_lossy().to_string())
@@ -141,17 +150,25 @@ impl WorkspaceManager {
 
     /// Returns the active canonical workspace root path if authorized.
     pub fn get_active_root(&self) -> Result<&Path, WorkspaceError> {
-        self.active_root.as_deref().ok_or(WorkspaceError::NoActiveWorkspace)
+        self.active_root
+            .as_deref()
+            .ok_or(WorkspaceError::NoActiveWorkspace)
     }
 
     /// Resolves and validates a target path strictly within the active workspace root.
     pub fn resolve_and_validate_path(&self, requested: &str) -> Result<PathBuf, WorkspaceError> {
-        let root = self.active_root.as_ref().ok_or(WorkspaceError::NoActiveWorkspace)?;
+        let root = self
+            .active_root
+            .as_ref()
+            .ok_or(WorkspaceError::NoActiveWorkspace)?;
         Self::validate_path_against_root(root, requested)
     }
 
     /// Pure security boundary validation against a specified canonical root.
-    pub fn validate_path_against_root(root: &Path, requested: &str) -> Result<PathBuf, WorkspaceError> {
+    pub fn validate_path_against_root(
+        root: &Path,
+        requested: &str,
+    ) -> Result<PathBuf, WorkspaceError> {
         let trimmed = requested.trim();
         if trimmed.is_empty() || trimmed == "." {
             return Ok(root.to_path_buf());
@@ -166,8 +183,9 @@ impl WorkspaceManager {
         };
 
         if candidate.exists() {
-            let canonical_target = fs::canonicalize(&candidate)
-                .map_err(|e| WorkspaceError::IoError(format!("Failed to canonicalize path: {}", e)))?;
+            let canonical_target = fs::canonicalize(&candidate).map_err(|e| {
+                WorkspaceError::IoError(format!("Failed to canonicalize path: {}", e))
+            })?;
 
             if canonical_target.starts_with(root) {
                 Ok(canonical_target)
@@ -224,8 +242,14 @@ impl WorkspaceManager {
     }
 
     /// Lists files and directories inside the active workspace with standard exclusions.
-    pub fn list_files(&self, max_depth: Option<usize>) -> Result<Vec<NativeFileEntry>, WorkspaceError> {
-        let root = self.active_root.as_ref().ok_or(WorkspaceError::NoActiveWorkspace)?;
+    pub fn list_files(
+        &self,
+        max_depth: Option<usize>,
+    ) -> Result<Vec<NativeFileEntry>, WorkspaceError> {
+        let root = self
+            .active_root
+            .as_ref()
+            .ok_or(WorkspaceError::NoActiveWorkspace)?;
         let depth = max_depth.unwrap_or(10);
         let mut entries = Vec::new();
 
@@ -318,7 +342,9 @@ impl WorkspaceManager {
 
         let check_len = buffer.len().min(8000);
         if buffer[..check_len].contains(&0) {
-            return Err(WorkspaceError::BinaryOrUnsupportedEncoding(relative_path.to_string()));
+            return Err(WorkspaceError::BinaryOrUnsupportedEncoding(
+                relative_path.to_string(),
+            ));
         }
 
         String::from_utf8(buffer)
@@ -400,7 +426,10 @@ impl WorkspaceManager {
                 "npm"
             };
 
-            let framework = if root.join("next.config.js").exists() || root.join("next.config.mjs").exists() || root.join("next.config.ts").exists() {
+            let framework = if root.join("next.config.js").exists()
+                || root.join("next.config.mjs").exists()
+                || root.join("next.config.ts").exists()
+            {
                 "Next.js"
             } else if root.join("vite.config.ts").exists() || root.join("vite.config.js").exists() {
                 "Vite SPA"
@@ -450,10 +479,14 @@ mod tests {
         let mut mgr = WorkspaceManager::new();
         mgr.set_workspace_root(&root).expect("Failed to set root");
 
-        let resolved = mgr.resolve_and_validate_path("hello.txt").expect("Should allow valid file");
+        let resolved = mgr
+            .resolve_and_validate_path("hello.txt")
+            .expect("Should allow valid file");
         assert_eq!(resolved, file_path);
 
-        let content = mgr.read_text_file("hello.txt").expect("Should read text file");
+        let content = mgr
+            .read_text_file("hello.txt")
+            .expect("Should read text file");
         assert!(content.contains("Hello Axion"));
     }
 
@@ -471,10 +504,14 @@ mod tests {
         let mut mgr = WorkspaceManager::new();
         mgr.set_workspace_root(&root).expect("Failed to set root");
 
-        let resolved = mgr.resolve_and_validate_path("src/utils/test.rs").expect("Should allow nested file");
+        let resolved = mgr
+            .resolve_and_validate_path("src/utils/test.rs")
+            .expect("Should allow nested file");
         assert_eq!(resolved, file_path);
 
-        let content = mgr.read_text_file("src/utils/test.rs").expect("Should read nested file");
+        let content = mgr
+            .read_text_file("src/utils/test.rs")
+            .expect("Should read nested file");
         assert!(content.contains("pub fn test()"));
     }
 
@@ -487,10 +524,16 @@ mod tests {
         mgr.set_workspace_root(&root).expect("Failed to set root");
 
         let err = mgr.resolve_and_validate_path("../outside.txt");
-        assert!(matches!(err, Err(WorkspaceError::SecurityEscapeViolation { .. })));
+        assert!(matches!(
+            err,
+            Err(WorkspaceError::SecurityEscapeViolation { .. })
+        ));
 
         let err2 = mgr.resolve_and_validate_path("foo/../../outside.txt");
-        assert!(matches!(err2, Err(WorkspaceError::SecurityEscapeViolation { .. })));
+        assert!(matches!(
+            err2,
+            Err(WorkspaceError::SecurityEscapeViolation { .. })
+        ));
     }
 
     #[test]
@@ -507,7 +550,10 @@ mod tests {
 
         let outside_str = other_file.to_string_lossy().to_string();
         let err = mgr.resolve_and_validate_path(&outside_str);
-        assert!(matches!(err, Err(WorkspaceError::SecurityEscapeViolation { .. })));
+        assert!(matches!(
+            err,
+            Err(WorkspaceError::SecurityEscapeViolation { .. })
+        ));
     }
 
     #[test]
@@ -519,7 +565,12 @@ mod tests {
         mgr.set_workspace_root(&root).expect("Failed to set root");
 
         let err = mgr.resolve_and_validate_path("nonexistent_file.txt");
-        assert_eq!(err, Err(WorkspaceError::FileNotFound("nonexistent_file.txt".to_string())));
+        assert_eq!(
+            err,
+            Err(WorkspaceError::FileNotFound(
+                "nonexistent_file.txt".to_string()
+            ))
+        );
     }
 
     #[cfg(unix)]
@@ -542,10 +593,16 @@ mod tests {
         mgr.set_workspace_root(&root).expect("Failed to set root");
 
         let err = mgr.resolve_and_validate_path("symlink_escape.txt");
-        assert!(matches!(err, Err(WorkspaceError::SecurityEscapeViolation { .. })));
+        assert!(matches!(
+            err,
+            Err(WorkspaceError::SecurityEscapeViolation { .. })
+        ));
 
         let read_err = mgr.read_text_file("symlink_escape.txt");
-        assert!(matches!(read_err, Err(WorkspaceError::SecurityEscapeViolation { .. })));
+        assert!(matches!(
+            read_err,
+            Err(WorkspaceError::SecurityEscapeViolation { .. })
+        ));
     }
 
     #[cfg(windows)]
@@ -569,7 +626,13 @@ mod tests {
         // (which does not require elevated privileges on Windows), falling back to symlink_dir.
         let created = {
             let status = std::process::Command::new("cmd")
-                .args(["/C", "mklink", "/J", &junction_link.to_string_lossy(), &outside_target.to_string_lossy()])
+                .args([
+                    "/C",
+                    "mklink",
+                    "/J",
+                    &junction_link.to_string_lossy(),
+                    &outside_target.to_string_lossy(),
+                ])
                 .output();
             match status {
                 Ok(out) if out.status.success() => Ok(()),
@@ -591,7 +654,10 @@ mod tests {
 
                 let read_err = mgr.read_text_file("junction_escape/keys.json");
                 assert!(
-                    matches!(read_err, Err(WorkspaceError::SecurityEscapeViolation { .. })),
+                    matches!(
+                        read_err,
+                        Err(WorkspaceError::SecurityEscapeViolation { .. })
+                    ),
                     "Expected SecurityEscapeViolation on read_text_file, got: {:?}",
                     read_err
                 );
@@ -613,12 +679,16 @@ mod tests {
 
         let bin_file = root.join("image.bin");
         let mut f = File::create(&bin_file).expect("Failed to create bin file");
-        f.write_all(&[0x89, 0x50, 0x4E, 0x47, 0x00, 0x01, 0x02]).expect("Write failed");
+        f.write_all(&[0x89, 0x50, 0x4E, 0x47, 0x00, 0x01, 0x02])
+            .expect("Write failed");
 
         let mut mgr = WorkspaceManager::new();
         mgr.set_workspace_root(&root).expect("Failed to set root");
 
         let err = mgr.read_text_file("image.bin");
-        assert!(matches!(err, Err(WorkspaceError::BinaryOrUnsupportedEncoding(_))));
+        assert!(matches!(
+            err,
+            Err(WorkspaceError::BinaryOrUnsupportedEncoding(_))
+        ));
     }
 }

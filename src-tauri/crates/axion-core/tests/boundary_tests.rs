@@ -16,10 +16,14 @@ fn test_integration_valid_file_inside_workspace() {
     let info = mgr.set_workspace_root(&root).expect("Set workspace failed");
     assert_eq!(info.canonical_root, root.to_string_lossy());
 
-    let resolved = mgr.resolve_and_validate_path("app.config.json").expect("Allowed");
+    let resolved = mgr
+        .resolve_and_validate_path("app.config.json")
+        .expect("Allowed");
     assert_eq!(resolved, file_path);
 
-    let text = mgr.read_text_file("app.config.json").expect("Read text failed");
+    let text = mgr
+        .read_text_file("app.config.json")
+        .expect("Read text failed");
     assert!(text.contains("3000"));
 }
 
@@ -43,7 +47,9 @@ fn test_integration_valid_nested_file() {
         .expect("Allowed nested");
     assert_eq!(resolved, index_file);
 
-    let text = mgr.read_text_file("packages/core/src/index.ts").expect("Read failed");
+    let text = mgr
+        .read_text_file("packages/core/src/index.ts")
+        .expect("Read failed");
     assert!(text.contains("VERSION"));
 }
 
@@ -56,10 +62,16 @@ fn test_integration_parent_traversal_rejected() {
     mgr.set_workspace_root(&root).expect("Set root failed");
 
     let err1 = mgr.resolve_and_validate_path("../outside.txt");
-    assert!(matches!(err1, Err(WorkspaceError::SecurityEscapeViolation { .. })));
+    assert!(matches!(
+        err1,
+        Err(WorkspaceError::SecurityEscapeViolation { .. })
+    ));
 
     let err2 = mgr.resolve_and_validate_path("src/../../outside.txt");
-    assert!(matches!(err2, Err(WorkspaceError::SecurityEscapeViolation { .. })));
+    assert!(matches!(
+        err2,
+        Err(WorkspaceError::SecurityEscapeViolation { .. })
+    ));
 
     let err3 = mgr.resolve_and_validate_path("....//....//etc//passwd");
     assert!(err3.is_err());
@@ -79,7 +91,10 @@ fn test_integration_absolute_outside_path_rejected() {
 
     let outside_path_str = other_file.to_string_lossy().to_string();
     let err = mgr.resolve_and_validate_path(&outside_path_str);
-    assert!(matches!(err, Err(WorkspaceError::SecurityEscapeViolation { .. })));
+    assert!(matches!(
+        err,
+        Err(WorkspaceError::SecurityEscapeViolation { .. })
+    ));
 }
 
 #[test]
@@ -91,7 +106,12 @@ fn test_integration_nonexistent_file_returns_structured_error() {
     mgr.set_workspace_root(&root).expect("Set root failed");
 
     let err = mgr.resolve_and_validate_path("does_not_exist.txt");
-    assert_eq!(err, Err(WorkspaceError::FileNotFound("does_not_exist.txt".to_string())));
+    assert_eq!(
+        err,
+        Err(WorkspaceError::FileNotFound(
+            "does_not_exist.txt".to_string()
+        ))
+    );
 }
 
 #[test]
@@ -123,7 +143,10 @@ fn test_integration_workspace_switch_invalidates_previous_boundary() {
     // 3. Attempt to access Workspace A absolute or relative path while Workspace B is active -> REJECTED
     let outside_a_str = file_a.to_string_lossy().to_string();
     let cross_access_err = mgr.resolve_and_validate_path(&outside_a_str);
-    assert!(matches!(cross_access_err, Err(WorkspaceError::SecurityEscapeViolation { .. })));
+    assert!(matches!(
+        cross_access_err,
+        Err(WorkspaceError::SecurityEscapeViolation { .. })
+    ));
 }
 
 #[test]
@@ -136,7 +159,10 @@ fn test_integration_workspace_switch_failure_preserves_previous_authorization() 
 
     let mut mgr = WorkspaceManager::new();
     mgr.set_workspace_root(&root_a).expect("Set root A ok");
-    assert_eq!(mgr.get_workspace_info().unwrap().name, root_a.file_name().unwrap().to_string_lossy());
+    assert_eq!(
+        mgr.get_workspace_info().unwrap().name,
+        root_a.file_name().unwrap().to_string_lossy()
+    );
 
     // Switch to nonexistent path B fails
     let fake_b = root_a.join("nonexistent_directory_b_12345");
@@ -144,7 +170,10 @@ fn test_integration_workspace_switch_failure_preserves_previous_authorization() 
     assert!(switch_err.is_err());
 
     // Invariant: Root A must remain authorized and functional
-    assert_eq!(mgr.get_workspace_info().unwrap().name, root_a.file_name().unwrap().to_string_lossy());
+    assert_eq!(
+        mgr.get_workspace_info().unwrap().name,
+        root_a.file_name().unwrap().to_string_lossy()
+    );
     let read_a = mgr.read_text_file("valid_a.txt").expect("Read A ok");
     assert!(read_a.contains("Content A"));
 }
@@ -168,16 +197,26 @@ fn test_integration_workspace_rollback_restores_authorization() {
     mgr.set_workspace_root(&root_a).expect("Set root A ok");
     // 2. Authorize B
     mgr.set_workspace_root(&root_b).expect("Set root B ok");
-    assert_eq!(mgr.get_workspace_info().unwrap().name, root_b.file_name().unwrap().to_string_lossy());
+    assert_eq!(
+        mgr.get_workspace_info().unwrap().name,
+        root_b.file_name().unwrap().to_string_lossy()
+    );
     // 3. Rollback to A
-    mgr.set_workspace_root(&root_a).expect("Rollback to root A ok");
-    assert_eq!(mgr.get_workspace_info().unwrap().name, root_a.file_name().unwrap().to_string_lossy());
+    mgr.set_workspace_root(&root_a)
+        .expect("Rollback to root A ok");
+    assert_eq!(
+        mgr.get_workspace_info().unwrap().name,
+        root_a.file_name().unwrap().to_string_lossy()
+    );
     let read_a = mgr.read_text_file("doc_a.txt").expect("Read A ok");
     assert!(read_a.contains("Data A"));
 
     // Doc B access through A boundary is now rejected as security violation
     let file_b_str = file_b.to_string_lossy().to_string();
-    assert!(matches!(mgr.resolve_and_validate_path(&file_b_str), Err(WorkspaceError::SecurityEscapeViolation { .. })));
+    assert!(matches!(
+        mgr.resolve_and_validate_path(&file_b_str),
+        Err(WorkspaceError::SecurityEscapeViolation { .. })
+    ));
 }
 
 #[test]
@@ -196,9 +235,18 @@ fn test_integration_clear_workspace_clears_authorization() {
     mgr.clear_workspace();
 
     // After clearing, operations must return NoActiveWorkspace
-    assert_eq!(mgr.get_workspace_info().unwrap_err(), WorkspaceError::NoActiveWorkspace);
-    assert_eq!(mgr.resolve_and_validate_path("file.txt").unwrap_err(), WorkspaceError::NoActiveWorkspace);
-    assert_eq!(mgr.read_text_file("file.txt").unwrap_err(), WorkspaceError::NoActiveWorkspace);
+    assert_eq!(
+        mgr.get_workspace_info().unwrap_err(),
+        WorkspaceError::NoActiveWorkspace
+    );
+    assert_eq!(
+        mgr.resolve_and_validate_path("file.txt").unwrap_err(),
+        WorkspaceError::NoActiveWorkspace
+    );
+    assert_eq!(
+        mgr.read_text_file("file.txt").unwrap_err(),
+        WorkspaceError::NoActiveWorkspace
+    );
 }
 
 #[cfg(unix)]
@@ -221,10 +269,16 @@ fn test_integration_symlink_escape_outside_workspace_rejected() {
     mgr.set_workspace_root(&root).expect("Set root failed");
 
     let err = mgr.resolve_and_validate_path("sneaky_symlink.env");
-    assert!(matches!(err, Err(WorkspaceError::SecurityEscapeViolation { .. })));
+    assert!(matches!(
+        err,
+        Err(WorkspaceError::SecurityEscapeViolation { .. })
+    ));
 
     let read_err = mgr.read_text_file("sneaky_symlink.env");
-    assert!(matches!(read_err, Err(WorkspaceError::SecurityEscapeViolation { .. })));
+    assert!(matches!(
+        read_err,
+        Err(WorkspaceError::SecurityEscapeViolation { .. })
+    ));
 }
 
 #[cfg(windows)]
@@ -246,7 +300,13 @@ fn test_integration_windows_junction_reparse_escape_rejected() {
 
     let created = {
         let status = std::process::Command::new("cmd")
-            .args(["/C", "mklink", "/J", &junction_point.to_string_lossy(), &outside_target.to_string_lossy()])
+            .args([
+                "/C",
+                "mklink",
+                "/J",
+                &junction_point.to_string_lossy(),
+                &outside_target.to_string_lossy(),
+            ])
             .output();
         match status {
             Ok(out) if out.status.success() => Ok(()),
@@ -268,7 +328,10 @@ fn test_integration_windows_junction_reparse_escape_rejected() {
 
             let read_err = mgr.read_text_file("junction_to_secrets/credentials.json");
             assert!(
-                matches!(read_err, Err(WorkspaceError::SecurityEscapeViolation { .. })),
+                matches!(
+                    read_err,
+                    Err(WorkspaceError::SecurityEscapeViolation { .. })
+                ),
                 "Expected SecurityEscapeViolation on read_text_file, got: {:?}",
                 read_err
             );

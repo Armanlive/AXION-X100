@@ -6,6 +6,7 @@ version = 4
 name = "axion-core"
 version = "1.0.0"
 dependencies = [
+ "getrandom",
  "serde",
  "serde_json",
  "sha2",
