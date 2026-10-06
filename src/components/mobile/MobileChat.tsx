@@ -174,9 +174,9 @@ export const MobileChat: React.FC = () => {
           <div ref={messagesEndRef} />
         </div>
       ) : (
-        /* Empty Conversation State with Compact AxionLivingCore */
-        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-4 overflow-y-auto">
-          <AxionLivingCore state="idle" size="md" />
+        /* Empty Conversation State with Prominent AxionLivingCore */
+        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center space-y-4 overflow-y-auto my-auto">
+          <AxionLivingCore state="idle" size="lg" />
 
           <div className="space-y-1">
             <h2 className="text-lg font-bold text-white font-mono tracking-tight">AXION</h2>
@@ -186,14 +186,14 @@ export const MobileChat: React.FC = () => {
           </div>
 
           {/* Action Cards */}
-          <div className="w-full max-w-xs space-y-2 pt-2">
+          <div className="w-full max-w-xs space-y-2 pt-1">
             <button
               onClick={() => setCurrentTab('local_workspace')}
               className="w-full min-h-[44px] p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 hover:border-zinc-700 flex items-center justify-between text-xs text-zinc-200 transition"
             >
               <div className="flex items-center gap-2.5">
                 <FolderOpen className="w-4 h-4 text-cyan-400" />
-                <span>Open Local Workspace</span>
+                <span>Open Workspace</span>
               </div>
               <span className="text-[10px] text-zinc-500 font-mono">
                 {activeWorkspace ? activeWorkspace.name : 'Select'}

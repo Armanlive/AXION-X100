@@ -873,7 +873,7 @@ const TerminalConsolePane: React.FC<TerminalConsolePaneProps> = ({
   return (
     <div className="flex-1 flex flex-col overflow-hidden bg-[#070709] relative">
       {/* Pane Sub-header */}
-      <div className="px-3 py-1 bg-[#09090b] border-b border-zinc-850 flex items-center justify-between text-[11px] text-zinc-500 font-mono">
+      <div className="px-3 py-1.5 bg-[#09090b] border-b border-zinc-850 flex items-center justify-between text-[11px] text-zinc-500 font-mono">
         <div className="flex items-center gap-2">
           <span className="font-semibold text-zinc-200">{session.name}</span>
           <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-300">
@@ -945,6 +945,15 @@ const TerminalConsolePane: React.FC<TerminalConsolePaneProps> = ({
             </button>
           )}
         </div>
+      </div>
+
+      {/* Truthful Platform Notice */}
+      <div className="px-3 py-1 bg-[#101014] border-b border-zinc-800/80 flex items-center justify-between text-[10px] text-zinc-400 font-mono">
+        <span className="flex items-center gap-1.5 text-zinc-400">
+          <Shield className="w-3 h-3 text-cyan-400" />
+          <span>Native terminal execution is not implemented yet in Phase 2 (Audit Mode)</span>
+        </span>
+        <span className="text-[9px] text-zinc-500">Read-only sandbox</span>
       </div>
 
       {/* Logs stream with ANSI color rendering */}

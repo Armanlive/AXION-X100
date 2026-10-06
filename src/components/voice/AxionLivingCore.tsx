@@ -5,7 +5,7 @@ export type LivingCoreState = 'idle' | 'listening' | 'thinking' | 'speaking';
 export interface AxionLivingCoreProps {
   state: LivingCoreState;
   audioLevel?: number; // Real 0.0 - 1.0 amplitude if available
-  size?: 'sm' | 'md' | 'lg' | 'hero';
+  size?: 'sm' | 'md' | 'lg' | 'welcome' | 'hero';
   className?: string;
   isMuted?: boolean;
   onClick?: () => void;
@@ -61,12 +61,14 @@ export const AxionLivingCore: React.FC<AxionLivingCoreProps> = ({
       case 'sm':
         return { box: 56, viewBox: 120 };
       case 'md':
-        return { box: 140, viewBox: 260 };
+        return { box: 130, viewBox: 240 };
       case 'lg':
-        return { box: 220, viewBox: 320 };
+        return { box: 180, viewBox: 300 };
+      case 'welcome':
+        return { box: 210, viewBox: 320 };
       case 'hero':
       default:
-        return { box: 270, viewBox: 360 };
+        return { box: 240, viewBox: 360 };
     }
   }, [size]);
 

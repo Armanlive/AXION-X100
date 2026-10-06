@@ -527,9 +527,9 @@ export const WorkspaceChat: React.FC = () => {
         /* ==================================================
            AXION LIVING CORE DESKTOP CHAT HERO
            ================================================== */
-        <div className="flex-1 flex flex-col items-center justify-center px-4 overflow-y-auto max-w-2xl w-full mx-auto text-center space-y-6 animate-in fade-in duration-200 py-10">
-          {/* Hero Abstract Living Core */}
-          <AxionLivingCore state="idle" size="md" />
+        <div className="flex-1 flex flex-col items-center justify-center px-4 overflow-y-auto max-w-2xl w-full mx-auto text-center space-y-5 animate-in fade-in duration-200 py-6 my-auto">
+          {/* Hero Abstract Living Core (180-240px footprint) */}
+          <AxionLivingCore state="idle" size="welcome" />
 
           {/* Clean Typography */}
           <div className="space-y-1.5">
@@ -540,23 +540,23 @@ export const WorkspaceChat: React.FC = () => {
               Local intelligence. Your workspace.
             </h1>
             <p className="text-xs sm:text-sm text-zinc-400 max-w-md mx-auto leading-relaxed">
-              One private local workspace. Real-time reasoning. 17 specialist agents.
+              Private local workspace orchestration with voice-first coding and 17 specialist agents.
             </p>
           </div>
 
-          {/* Three Focused Action Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 w-full max-w-lg text-left pt-1">
+          {/* Three Focused Quick Action Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 w-full max-w-lg text-left pt-1">
             <button
               onClick={() => setCurrentTab('local_workspace')}
-              className="p-3.5 rounded-xl bg-[#121215] border border-zinc-800 hover:border-zinc-700 hover:bg-[#161619] transition group flex flex-col justify-between min-h-[84px]"
+              className="p-3 rounded-xl bg-[#121215] border border-zinc-800/90 hover:border-zinc-700 hover:bg-[#16161a] transition group flex flex-col justify-between min-h-[78px] shadow-sm"
             >
               <div className="flex items-center justify-between w-full">
                 <Folder className="w-4 h-4 text-cyan-400" />
                 <ArrowUp className="w-3 h-3 text-zinc-600 group-hover:text-zinc-300 rotate-45 transition" />
               </div>
-              <div>
+              <div className="mt-2">
                 <div className="text-xs font-semibold text-zinc-200 group-hover:text-white">
-                  Open Local Workspace
+                  Open Workspace
                 </div>
                 <div className="text-[11px] text-zinc-500 truncate mt-0.5 font-mono">
                   {activeWorkspace ? activeWorkspace.name : 'Mount directory'}
@@ -569,13 +569,13 @@ export const WorkspaceChat: React.FC = () => {
                 setInputVal('Analyze this project architecture and check for build issues.');
                 textareaRef.current?.focus();
               }}
-              className="p-3.5 rounded-xl bg-[#121215] border border-zinc-800 hover:border-zinc-700 hover:bg-[#161619] transition group flex flex-col justify-between min-h-[84px]"
+              className="p-3 rounded-xl bg-[#121215] border border-zinc-800/90 hover:border-zinc-700 hover:bg-[#16161a] transition group flex flex-col justify-between min-h-[78px] shadow-sm"
             >
               <div className="flex items-center justify-between w-full">
                 <Sparkles className="w-4 h-4 text-cyan-400" />
                 <ArrowUp className="w-3 h-3 text-zinc-600 group-hover:text-zinc-300 rotate-45 transition" />
               </div>
-              <div>
+              <div className="mt-2">
                 <div className="text-xs font-semibold text-zinc-200 group-hover:text-white">
                   Ask AXION
                 </div>
@@ -587,13 +587,13 @@ export const WorkspaceChat: React.FC = () => {
 
             <button
               onClick={() => setSpeechMode('speech')}
-              className="p-3.5 rounded-xl bg-[#121215] border border-zinc-800 hover:border-zinc-700 hover:bg-[#161619] transition group flex flex-col justify-between min-h-[84px]"
+              className="p-3 rounded-xl bg-[#121215] border border-zinc-800/90 hover:border-zinc-700 hover:bg-[#16161a] transition group flex flex-col justify-between min-h-[78px] shadow-sm"
             >
               <div className="flex items-center justify-between w-full">
                 <Mic className="w-4 h-4 text-cyan-400" />
                 <ArrowUp className="w-3 h-3 text-zinc-600 group-hover:text-zinc-300 rotate-45 transition" />
               </div>
-              <div>
+              <div className="mt-2">
                 <div className="text-xs font-semibold text-zinc-200 group-hover:text-white">
                   Voice Mode
                 </div>
