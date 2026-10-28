@@ -59,6 +59,9 @@ pub enum VaultError {
     #[error("Secure vault mutation and restoration is not supported on Windows in Phase 2 Step 1")]
     SecureMutationUnsupportedOnPlatform,
 
+    #[error("Path contains invalid UTF-8 encoding and cannot be safely represented: {0}")]
+    InvalidPathEncoding(String),
+
     #[error("Security violation: {0}")]
     SecurityViolation(String),
 
@@ -191,6 +194,27 @@ impl SecureDir {
         {
             return Err(VaultError::SecurityViolation(format!(
                 "Invalid child component name: '{}'",
+                name
+            )));
+        }
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    /// Validates that an OsStr filename/component is a single child name with no separators or traversal,
+    /// inspecting raw native bytes via OsStrExt without silent lossy conversion.
+    pub fn validate_single_child_os_component(name: &std::ffi::OsStr) -> Result<(), VaultError> {
+        use std::os::unix::ffi::OsStrExt;
+        let b = name.as_bytes();
+        if b.is_empty()
+            || b == b"."
+            || b == b".."
+            || b.contains(&b'/')
+            || b.contains(&b'\\')
+            || b.contains(&0)
+        {
+            return Err(VaultError::SecurityViolation(format!(
+                "Invalid child component name: {:?}",
                 name
             )));
         }
@@ -727,10 +751,10 @@ impl SnapshotVault {
     }
 
     /// Captures a pre-mutation snapshot of a single workspace file.
-    pub fn create_snapshot(
+    pub fn create_snapshot<P: AsRef<Path>>(
         &self,
         workspace_manager: &WorkspaceManager,
-        relative_path: &str,
+        relative_path: P,
     ) -> Result<SnapshotMetadata, VaultError> {
         #[cfg(not(unix))]
         {
@@ -741,15 +765,34 @@ impl SnapshotVault {
 
         #[cfg(unix)]
         {
+            let rel_p = relative_path.as_ref();
+            let rel_str = match rel_p.to_str() {
+                Some(s) => s,
+                None => {
+                    return Err(VaultError::InvalidPathEncoding(format!(
+                        "Relative path contains invalid non-UTF-8 bytes: {:?}",
+                        rel_p.as_os_str()
+                    )));
+                }
+            };
+
             let active_root = workspace_manager.get_active_root()?;
-            let canonical_root_str = active_root.to_string_lossy().to_string();
+            let canonical_root_str = match active_root.to_str() {
+                Some(s) => s.to_string(),
+                None => {
+                    return Err(VaultError::InvalidPathEncoding(format!(
+                        "Active workspace root contains non-UTF-8 bytes: {:?}",
+                        active_root
+                    )));
+                }
+            };
 
             self.validate_vault_tree()?;
             self.validate_workspace_isolation(active_root)?;
 
-            let trimmed_rel = relative_path.trim().replace('\\', "/");
+            let trimmed_rel = rel_str.trim().replace('\\', "/");
             if trimmed_rel.is_empty() || trimmed_rel == "." {
-                return Err(VaultError::IsADirectory(relative_path.to_string()));
+                return Err(VaultError::IsADirectory(rel_str.to_string()));
             }
 
             let validation_res = workspace_manager.resolve_and_validate_path(&trimmed_rel);
@@ -879,7 +922,10 @@ impl SnapshotVault {
                 Err(_) => continue,
             };
 
-            let name = entry.file_name().to_string_lossy().to_string();
+            let name = match entry.file_name().into_string() {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
             if name.ends_with(".meta.json") {
                 let snap_id = name.trim_end_matches(".meta.json");
                 if Self::validate_snapshot_id(snap_id).is_err() {
@@ -942,10 +988,19 @@ impl SnapshotVault {
             };
 
             if canonical_active_root != canonical_expected_root {
+                let active_root_str = match canonical_active_root.to_str() {
+                    Some(s) => s.to_string(),
+                    None => {
+                        return Err(VaultError::InvalidPathEncoding(format!(
+                            "Canonical active root contains non-UTF-8 bytes: {:?}",
+                            canonical_active_root
+                        )));
+                    }
+                };
                 return Err(VaultError::WorkspaceMismatch {
                     id: snapshot_id.to_string(),
                     expected_root: metadata.workspace_root.clone(),
-                    active_root: canonical_active_root.to_string_lossy().to_string(),
+                    active_root: active_root_str,
                 });
             }
 
@@ -1155,11 +1210,19 @@ impl SnapshotVault {
             )));
         }
 
-        let file_name = rel
+        let file_name_os = rel
             .file_name()
-            .ok_or_else(|| VaultError::SecurityViolation("Invalid relative path target".to_string()))?
-            .to_string_lossy()
-            .to_string();
+            .ok_or_else(|| VaultError::SecurityViolation("Invalid relative path target".to_string()))?;
+
+        let file_name = match file_name_os.to_str() {
+            Some(s) => s.to_string(),
+            None => {
+                return Err(VaultError::InvalidPathEncoding(format!(
+                    "Destination filename contains invalid non-UTF-8 bytes: {:?}",
+                    file_name_os
+                )));
+            }
+        };
 
         let parent_rel = rel.parent();
 
@@ -1180,8 +1243,16 @@ impl SnapshotVault {
                         ));
                     }
                     Component::Normal(c) => {
-                        let c_str = c.to_string_lossy();
-                        current_secure = current_secure.open_or_create_child_dir(&c_str)?;
+                        let c_str = match c.to_str() {
+                            Some(s) => s,
+                            None => {
+                                return Err(VaultError::InvalidPathEncoding(format!(
+                                    "Path component contains invalid non-UTF-8 bytes: {:?}",
+                                    c
+                                )));
+                            }
+                        };
+                        current_secure = current_secure.open_or_create_child_dir(c_str)?;
                         if !current_secure.path.starts_with(active_root) {
                             return Err(VaultError::SecurityViolation(
                                 "Parent directory escapes workspace root".to_string(),

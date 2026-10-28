@@ -1,0 +1,15 @@
+import {chromium} from 'file:///C:/Users/ADMIN/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs';
+import assert from 'node:assert/strict';import {writeFile} from 'node:fs/promises';
+const browser=await chromium.launch({channel:'msedge',headless:true});const page=await browser.newPage({viewport:{width:1440,height:1000}});page.setDefaultTimeout(12000);let requests=0;
+await page.addInitScript(()=>{
+ window.__spoken=[];class Synth extends EventTarget{getVoices(){return[{name:'Fixture Hindi',lang:'hi-IN',localService:true}]};cancel(){}speak(u){window.__spoken.push(u.text);queueMicrotask(()=>u.onstart?.());setTimeout(()=>u.onend?.(),50)}}
+ Object.defineProperty(window,'speechSynthesis',{value:new Synth(),configurable:true});window.SpeechSynthesisUtterance=class{constructor(text){this.text=text;}};
+});
+await page.route('https://generativelanguage.googleapis.com/**',async route=>{requests++;await route.fulfill({contentType:'text/event-stream',body:'data: '+JSON.stringify({candidates:[{content:{role:'model',parts:[{text:JSON.stringify({text:'Yeh parikshan ka jawab hai. Aapki baat sun raha hoon.',speechText:'यह परीक्षण का जवाब है। आपकी बात सुन रहा हूँ।'})}]},finishReason:'STOP'}]})+'\n\n'});});
+await page.goto('http://127.0.0.1:3000');await page.getByRole('button',{name:'Cloud Brain',exact:true}).click();await page.getByRole('button',{name:/^Providers/}).click();
+await page.getByRole('button',{name:'Configure API Key',exact:true}).first().click();await page.getByPlaceholder('sk-...').fill('fixture-not-a-real-key');await page.getByRole('button',{name:'Use key this session'}).click();
+await page.getByText('Configured · unverified',{exact:true}).waitFor();await page.getByRole('button',{name:'Voice',exact:true}).click();await page.getByRole('button',{name:'बात करें',exact:true}).click();
+await page.getByText('"Yeh parikshan ka jawab hai. Aapki baat sun raha hoon."',{exact:true}).waitFor();await page.waitForTimeout(600);
+assert.equal(await page.evaluate(()=>window.__spoken[0]),'यह परीक्षण का जवाब है। आपकी बात सुन रहा हूँ।');assert.equal(requests,1);assert.equal(await page.evaluate(()=>window.__spoken.length),1);assert.ok(!(await page.locator('body').innerText()).includes('### Next Steps:'));
+await page.screenshot({path:'artifacts/voice-conversation/reply-integration-fixture.png'});
+await writeFile('artifacts/voice-conversation/ui-integration.json',JSON.stringify({checks:['Gemini key form stores session configuration without claiming verified connection','Configured Gemini key is used by actual voice prompt path','One prompt makes one intercepted provider request','One completed reply triggers one device speech call','Reply stays visible after speech ends'],providerRequests:requests,deviceSpeechCalls:1,note:'Explicit intercepted provider and synthetic speech fixture; no real cloud request or audible output.'},null,2));console.log('Actual UI conversation and single-playback integration passed.');await browser.close();

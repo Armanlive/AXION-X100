@@ -34,34 +34,34 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
 
   return (
     <div
-      className={`rounded-xl border border-zinc-800 bg-[#0c0c0e] flex flex-col overflow-hidden shadow-2xl ${
+      className={`rounded-2xl border border-cyan-500/25 bg-[#070c18] flex flex-col overflow-hidden shadow-[0_0_25px_rgba(0,240,255,0.1)] ${
         isModal ? 'max-h-[82vh]' : 'my-2'
       }`}
     >
       {/* Header Bar */}
-      <div className="px-3.5 py-2 bg-[#121215] border-b border-zinc-800 flex flex-wrap items-center justify-between gap-2">
+      <div className="px-3.5 py-2.5 bg-[#0a1224] border-b border-cyan-500/20 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <FileCode2 className="w-3.5 h-3.5 text-zinc-400" />
-          <span className="font-mono text-xs font-semibold text-zinc-200">
+          <FileCode2 className="w-3.5 h-3.5 text-[#00f0ff]" />
+          <span className="font-mono text-xs font-semibold text-white">
             {diff.filePath}
           </span>
-          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-300 border border-zinc-700">
+          <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-cyan-950/80 text-cyan-300 border border-cyan-500/30">
             {diff.taskId}
           </span>
-          <span className="text-[10px] text-zinc-500 font-mono hidden sm:inline">
+          <span className="text-[10px] text-cyan-400/60 font-mono hidden sm:inline">
             {diff.timestamp}
           </span>
         </div>
 
         <div className="flex items-center gap-2">
           {/* View mode toggle */}
-          <div className="flex items-center bg-[#18181b] rounded-md p-0.5 border border-zinc-800">
+          <div className="flex items-center bg-[#080d1a] rounded-lg p-0.5 border border-cyan-500/25">
             <button
               onClick={() => setDiffViewMode('side-by-side')}
-              className={`px-2 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 transition ${
+              className={`px-2 py-0.5 rounded text-[11px] font-mono font-medium flex items-center gap-1 transition ${
                 diffViewMode === 'side-by-side'
-                  ? 'bg-zinc-700 text-white shadow-sm'
-                  : 'text-zinc-400 hover:text-zinc-200'
+                  ? 'bg-cyan-950/80 text-[#00f0ff] border border-cyan-500/40 shadow-sm'
+                  : 'text-cyan-400/60 hover:text-white'
               }`}
             >
               <Split className="w-3 h-3" />
@@ -69,10 +69,10 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
             </button>
             <button
               onClick={() => setDiffViewMode('unified')}
-              className={`px-2 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 transition ${
+              className={`px-2 py-0.5 rounded text-[11px] font-mono font-medium flex items-center gap-1 transition ${
                 diffViewMode === 'unified'
-                  ? 'bg-zinc-700 text-white shadow-sm'
-                  : 'text-zinc-400 hover:text-zinc-200'
+                  ? 'bg-cyan-950/80 text-[#00f0ff] border border-cyan-500/40 shadow-sm'
+                  : 'text-cyan-400/60 hover:text-white'
               }`}
             >
               <Rows className="w-3 h-3" />
@@ -82,12 +82,12 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
 
           {/* Status Badge */}
           <span
-            className={`text-[11px] px-2 py-0.5 rounded-md font-mono ${
+            className={`text-[11px] px-2.5 py-0.5 rounded-full font-mono font-semibold ${
               diff.status === 'approved'
-                ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/30'
+                ? 'bg-cyan-950/80 text-[#00f0ff] border border-cyan-500/40 shadow-[0_0_8px_rgba(0,240,255,0.2)]'
                 : diff.status === 'rejected'
-                ? 'bg-rose-500/10 text-rose-400 border border-rose-500/30'
-                : 'bg-amber-500/10 text-amber-300 border border-amber-500/30'
+                ? 'bg-rose-950/60 text-rose-400 border border-rose-500/40'
+                : 'bg-amber-950/60 text-amber-300 border border-amber-500/40'
             }`}
           >
             {diff.status === 'pending_approval' ? 'Pending Approval' : diff.status.toUpperCase()}
@@ -96,7 +96,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
       </div>
 
       {/* Summary Prompt Description */}
-      <div className="px-3.5 py-1.5 bg-[#0f0f12] border-b border-zinc-800/80 text-xs text-zinc-300 flex items-center justify-between">
+      <div className="px-3.5 py-1.5 bg-[#080e1c] border-b border-cyan-500/15 text-xs text-cyan-200 flex items-center justify-between font-mono">
         <div className="flex items-center gap-2 truncate">
           <span className="font-medium text-zinc-400">Patch Summary:</span>
           <span className="truncate text-zinc-200">{diff.summary}</span>
@@ -212,16 +212,16 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
 
       {/* Safety Approval Gate Footer */}
       {diff.status === 'pending_approval' && (
-        <div className="p-3 bg-[#111114] border-t border-zinc-800 flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs text-zinc-400">
-            <span className="font-medium text-zinc-200">Diff Gate:</span>
+        <div className="p-3 bg-[#080d1a] border-t border-cyan-500/25 flex items-center justify-between">
+          <div className="flex items-center gap-2 text-xs font-mono text-cyan-300/80">
+            <span className="font-bold text-white">Diff Gate:</span>
             <span>Approve to execute native disk write and verify build.</span>
           </div>
 
           <div className="flex items-center gap-2">
             <button
               onClick={handleReject}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-medium transition"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-rose-500/40 bg-rose-950/40 hover:bg-rose-900/40 text-rose-300 text-xs font-mono font-medium transition"
             >
               <X className="w-3.5 h-3.5" />
               Reject Patch
@@ -229,7 +229,7 @@ export const DiffViewer: React.FC<DiffViewerProps> = ({
 
             <button
               onClick={handleApprove}
-              className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-md transition"
+              className="flex items-center gap-1.5 px-4 py-1.5 rounded-lg bg-[#00f0ff] hover:bg-[#38bdf8] text-[#050508] text-xs font-mono font-bold shadow-[0_0_15px_rgba(0,240,255,0.4)] transition"
             >
               <Check className="w-3.5 h-3.5" />
               Approve & Apply

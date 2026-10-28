@@ -4,25 +4,183 @@
 
 @layer base {
   body {
-    @apply bg-[#0b0b0c] text-[#f4f4f5];
+    @apply bg-[#050508] text-[#e2f1fd];
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 }
 
-/* Custom Minimal Scrollbars */
+/* AXION Electric Cyan Scrollbars */
 ::-webkit-scrollbar {
   width: 5px;
   height: 5px;
 }
 
 ::-webkit-scrollbar-track {
-  background: transparent;
+  background: rgba(5, 8, 15, 0.8);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #27272a;
+  background: rgba(0, 240, 255, 0.22);
   border-radius: 4px;
+  border: 1px solid rgba(0, 240, 255, 0.1);
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3f3f46;
+  background: rgba(0, 240, 255, 0.5);
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.4);
+}
+
+/* AXION Holographic Glass Panels */
+.axion-panel {
+  background: rgba(8, 13, 24, 0.78);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 240, 255, 0.18);
+  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.75), inset 0 0 12px rgba(0, 240, 255, 0.03);
+}
+
+.axion-panel-glow {
+  background: rgba(8, 14, 28, 0.82);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 240, 255, 0.35);
+  box-shadow: 0 0 25px rgba(0, 240, 255, 0.15), inset 0 0 16px rgba(0, 240, 255, 0.05);
+}
+
+.axion-card {
+  background: rgba(10, 17, 32, 0.65);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 240, 255, 0.16);
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.axion-card:hover {
+  background: rgba(14, 23, 44, 0.8);
+  border-color: rgba(0, 240, 255, 0.45);
+  box-shadow: 0 0 20px rgba(0, 240, 255, 0.14);
+}
+
+.axion-input {
+  background: rgba(8, 14, 26, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 240, 255, 0.2);
+  color: #e2f1fd;
+  transition: all 0.2s ease;
+}
+
+.axion-input:focus {
+  border-color: rgba(0, 240, 255, 0.6);
+  box-shadow: 0 0 20px rgba(0, 240, 255, 0.25), inset 0 0 10px rgba(0, 240, 255, 0.05);
+}
+
+/* Neon Text Utilities */
+.neon-text-cyan {
+  color: #00f0ff;
+  text-shadow: 0 0 10px rgba(0, 240, 255, 0.6), 0 0 22px rgba(0, 240, 255, 0.3);
+}
+
+.neon-text-blue {
+  color: #38bdf8;
+  text-shadow: 0 0 8px rgba(56, 189, 248, 0.5);
+}
+
+/* Holographic Cyber Background Grid */
+.cyber-grid-bg {
+  background-image: 
+    linear-gradient(rgba(0, 240, 255, 0.03) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 240, 255, 0.03) 1px, transparent 1px);
+  background-size: 32px 32px;
+}
+
+/* Holographic Keyframe Animations */
+@keyframes axion-spin-cw {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes axion-spin-ccw {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(-360deg); }
+}
+
+@keyframes axion-radar-sweep {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+@keyframes axion-pulse-ring {
+  0% {
+    transform: scale(0.9);
+    opacity: 0.85;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.4;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+
+@keyframes axion-shockwave {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.9;
+    border-width: 2px;
+  }
+  100% {
+    transform: scale(1.55);
+    opacity: 0;
+    border-width: 0.5px;
+  }
+}
+
+@keyframes axion-core-glow {
+  0%, 100% {
+    opacity: 0.8;
+    transform: scale(0.97);
+    filter: drop-shadow(0 0 8px rgba(0, 240, 255, 0.7));
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.03);
+    filter: drop-shadow(0 0 20px rgba(0, 240, 255, 0.95));
+  }
+}
+
+@keyframes axion-scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(1000%); }
+}
+
+.animate-axion-spin-cw {
+  animation: axion-spin-cw 20s linear infinite;
+  transform-origin: center center;
+}
+
+.animate-axion-spin-cw-fast {
+  animation: axion-spin-cw 6s linear infinite;
+  transform-origin: center center;
+}
+
+.animate-axion-spin-ccw {
+  animation: axion-spin-ccw 16s linear infinite;
+  transform-origin: center center;
+}
+
+.animate-axion-spin-ccw-fast {
+  animation: axion-spin-ccw 5s linear infinite;
+  transform-origin: center center;
+}
+
+.animate-axion-core {
+  animation: axion-core-glow 3.2s ease-in-out infinite;
+  transform-origin: center center;
+}
+
+.animate-axion-pulse {
+  animation: axion-pulse-ring 2.8s cubic-bezier(0.215, 0.61, 0.355, 1) infinite;
+  transform-origin: center center;
 }

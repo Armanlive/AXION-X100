@@ -1,0 +1,18 @@
+import {chromium} from 'file:///C:/Users/ADMIN/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs';
+import assert from 'node:assert/strict';
+const browser=await chromium.launch({channel:'msedge',headless:true});
+const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));
+await page.goto('http://127.0.0.1:3000');
+await page.getByRole('button',{name:'Terminal',exact:true}).first().click();
+await page.getByText(/Ghost Operator/).waitFor();await page.getByTitle('Maximize panel',{exact:true}).click();
+await page.evaluate(async()=>{const source=await (await fetch('/src/components/NativeTerminalPane.tsx')).text();const url=source.match(/from ["']([^"']*utils\/nativeTerminal[^"']*)["']/)[1];const {getPty}=await import(url);const view=getPty('term-1');view.monitor.feed('FIXTURE ONLY\nerror TS2322: type mismatch in src/example.ts\n token=fixture-secret');view.monitor.flush();});
+await page.getByText(/Ghost Operator/).click();
+assert.ok((await page.locator('body').innerText()).includes('[REDACTED]'));
+assert.ok(!(await page.locator('body').innerText()).includes('fixture-secret'));
+await page.evaluate(async()=>{const source=await (await fetch('/src/components/NativeTerminalPane.tsx')).text();const url=source.match(/from ["']([^"']*utils\/nativeTerminal[^"']*)["']/)[1];const {getPty}=await import(url);const view=getPty('term-1');view.ghost.proposal={summary:'Synthetic UI fixture — not a real AI fix',patches:[{path:'src/example.ts',original:'const count: number = "1";',proposed:'const count: number = 1;'}],validation:'npm test'};view.listeners.forEach(fn=>fn());});
+assert.equal(await page.getByRole('button',{name:'Apply Fix — unavailable'}).isDisabled(),true);
+await page.screenshot({path:'artifacts/ghost-operator/review-fixture.png'});
+await page.getByRole('button',{name:'Reject / dismiss'}).click();
+assert.equal(await page.getByRole('button',{name:'Apply Fix — unavailable'}).count(),0);
+assert.deepEqual(errors,[]);console.log('Browser fixture passed: capture, redaction, proposal preview, disabled apply, rejection, no page errors. No native execution or live AI verified.');
+await browser.close();

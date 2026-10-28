@@ -18,7 +18,19 @@ export default defineConfig({
     // Google internal proxies (e.g. localhost.corp.google.com), and dynamic iframe hosts.
     // Broad allowedHosts: true is required by the AI Studio cloud sandbox to prevent 403 Forbidden errors.
     // Note: This is an environment preview binding, not a production security configuration.
-    allowedHosts: true,
+    proxy: {
+      '/api/fish-audio': {
+        target: 'https://api.fish.audio',
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/api\/fish-audio/, ''),
+        secure: true,
+      },
+    },
+    // Python virtualenvs contain thousands of vendored HTML/JS files; watching
+    // them spams "page reload" and makes the dev terminal unusable.
+    watch: {
+      ignored: ['**/src-python/**', '**/.venv*/**', '**/node_modules/**', '**/dist/**', '**/src-tauri/target/**'],
+    },
   },
   preview: {
     host: '0.0.0.0',

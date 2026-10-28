@@ -1,0 +1,7 @@
+groq>=0.30,<2
+edge-tts>=7.2,<8
+playsound3>=3.2,<4
+# LiveKit scoped-token bridge (livekit_bridge.py); note: package is livekit-api,
+# not "livekit" (the bare name is a different, empty distribution).
+livekit-api>=1,<2
+pyjwt>=2,<3

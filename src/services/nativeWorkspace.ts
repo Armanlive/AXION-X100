@@ -61,25 +61,10 @@ export class NativeWorkspaceService {
       );
     }
 
-    try {
-      // Dynamic import of plugin-dialog to prevent build failures in environments where it is optional
-      // @ts-ignore
-      const dialog = await import('@tauri-apps/plugin-dialog').catch(() => null);
-      if (dialog && typeof dialog.open === 'function') {
-        const selected = await dialog.open({
-          directory: true,
-          multiple: false,
-          title: 'Select Project Workspace Directory',
-        });
-        if (typeof selected === 'string' && selected.trim()) {
-          return selected.trim();
-        }
-      }
-    } catch (e) {
-      console.warn('Tauri dialog plugin error:', e);
-    }
-
-    return null;
+    // Native picker (Rust/rfd). The JS dialog plugin is not registered on the Rust side,
+    // so calling it failed silently and "Open Folder" did nothing.
+    const selected = await invoke<string | null>('pick_folder');
+    return typeof selected === 'string' && selected.trim() ? selected.trim() : null;
   }
 
   /**

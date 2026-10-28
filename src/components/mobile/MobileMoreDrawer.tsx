@@ -1,3 +1,4 @@
+import {useProfileStore} from '../../store/useProfileStore';
 import React, { useState } from 'react';
 import { useAxionStore, TabType } from '../../store/useAxionStore';
 import { NativeWorkspaceService } from '../../services/nativeWorkspace';
@@ -55,22 +56,25 @@ export const MobileMoreDrawer: React.FC<MobileMoreDrawerProps> = ({ isOpen, onCl
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col justify-end bg-black/70 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex flex-col justify-end bg-[#050508]/80 backdrop-blur-md animate-in fade-in duration-200">
       {/* Click outside backdrop */}
       <div className="flex-1" onClick={onClose} />
 
       {/* Drawer Content */}
-      <div className="bg-[#121215] border-t border-zinc-800 rounded-t-3xl max-h-[85dvh] flex flex-col overflow-hidden shadow-2xl animate-in slide-in-from-bottom duration-200">
+      <div className="bg-[#080d1a]/95 border-t border-cyan-500/35 rounded-t-3xl max-h-[85dvh] flex flex-col overflow-hidden shadow-[0_-10px_35px_rgba(0,240,255,0.15)] animate-in slide-in-from-bottom duration-200">
+        <button className="p-3 text-xs font-mono text-[#00f0ff] hover:underline" onClick={()=>{onClose();useProfileStore.getState().show();}}>
+          OPERATOR IDENTITY // View AXION Profile
+        </button>
         {/* Drag Handle & Header */}
-        <div className="p-3 pb-2 flex flex-col items-center border-b border-zinc-850 shrink-0">
-          <div className="w-10 h-1 bg-zinc-700 rounded-full mb-3" />
+        <div className="p-3 pb-2 flex flex-col items-center border-b border-cyan-500/20 shrink-0">
+          <div className="w-10 h-1 bg-cyan-500/40 rounded-full mb-3" />
           <div className="w-full flex items-center justify-between px-2">
-            <span className="text-xs font-mono font-semibold text-zinc-300 uppercase tracking-wider">
-              AXION Workspace Menu
+            <span className="text-xs font-mono font-semibold text-[#00f0ff] uppercase tracking-wider">
+              AXION Workspace Menu // HUD
             </span>
             <button
               onClick={onClose}
-              className="p-1.5 min-h-[44px] min-w-[44px] flex items-center justify-center text-zinc-400 hover:text-white"
+              className="p-1.5 min-h-[44px] min-w-[44px] flex items-center justify-center text-cyan-400 hover:text-white"
               aria-label="Close menu"
             >
               <X className="w-4 h-4" />
@@ -84,46 +88,46 @@ export const MobileMoreDrawer: React.FC<MobileMoreDrawerProps> = ({ isOpen, onCl
           <div className="grid grid-cols-2 gap-2">
             <button
               onClick={handleNewChat}
-              className="min-h-[44px] flex items-center justify-center gap-2 p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-medium text-white hover:bg-zinc-800 transition"
+              className="min-h-[44px] flex items-center justify-center gap-2 p-2.5 rounded-xl bg-cyan-950/40 border border-cyan-500/30 text-xs font-mono font-medium text-white hover:bg-cyan-900/50 hover:border-cyan-400 transition"
             >
-              <Plus className="w-4 h-4 text-cyan-400" />
+              <Plus className="w-4 h-4 text-[#00f0ff]" />
               <span>New Chat</span>
             </button>
 
             <button
               onClick={() => handleSelectTab('local_workspace')}
-              className="min-h-[44px] flex items-center justify-center gap-2 p-2.5 rounded-xl bg-zinc-900 border border-zinc-800 text-xs font-medium text-white hover:bg-zinc-800 transition"
+              className="min-h-[44px] flex items-center justify-center gap-2 p-2.5 rounded-xl bg-cyan-950/40 border border-cyan-500/30 text-xs font-mono font-medium text-white hover:bg-cyan-900/50 hover:border-cyan-400 transition"
             >
-              <Folder className="w-4 h-4 text-cyan-400" />
+              <Folder className="w-4 h-4 text-[#00f0ff]" />
               <span>Workspace</span>
             </button>
           </div>
 
           {/* Primary Capabilities */}
           <div className="space-y-1">
-            <div className="px-1 text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+            <div className="px-1 text-[10px] font-mono uppercase tracking-wider text-cyan-400/60">
               Intelligence & Compute
             </div>
 
             <button
               onClick={() => handleSelectTab('agents')}
-              className="w-full min-h-[44px] flex items-center gap-3 px-3 py-2.5 rounded-xl bg-zinc-900/60 hover:bg-zinc-850 text-xs text-zinc-200 font-medium transition"
+              className="w-full min-h-[44px] flex items-center gap-3 px-3 py-2.5 rounded-xl bg-[#050508]/60 border border-cyan-500/20 hover:border-cyan-400/40 hover:bg-[#0c1428] text-xs text-cyan-100 font-medium transition"
             >
-              <Sparkles className="w-4 h-4 text-cyan-400 shrink-0" />
-              <div className="text-left">
-                <div>Agent Lab</div>
-                <div className="text-[10px] text-zinc-500">17 specialist engineering agents</div>
+              <Sparkles className="w-4 h-4 text-[#00f0ff] shrink-0" />
+              <div className="text-left font-mono">
+                <div className="text-white font-semibold">Agent Lab</div>
+                <div className="text-[10px] text-cyan-400/60">100 specialist engineering agents</div>
               </div>
             </button>
 
             <button
               onClick={() => handleSelectTab('cloud_brain')}
-              className="w-full min-h-[44px] flex items-center gap-3 px-3 py-2.5 rounded-xl bg-zinc-900/60 hover:bg-zinc-850 text-xs text-zinc-200 font-medium transition"
+              className="w-full min-h-[44px] flex items-center gap-3 px-3 py-2.5 rounded-xl bg-[#050508]/60 border border-cyan-500/20 hover:border-cyan-400/40 hover:bg-[#0c1428] text-xs text-cyan-100 font-medium transition"
             >
-              <Cpu className="w-4 h-4 text-cyan-400 shrink-0" />
-              <div className="text-left">
-                <div>Cloud Brain & Models</div>
-                <div className="text-[10px] text-zinc-500">Model router and compute tier</div>
+              <Cpu className="w-4 h-4 text-[#00f0ff] shrink-0" />
+              <div className="text-left font-mono">
+                <div className="text-white font-semibold">Cloud Brain & Models</div>
+                <div className="text-[10px] text-cyan-400/60">Model router and compute tier</div>
               </div>
             </button>
           </div>

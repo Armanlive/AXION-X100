@@ -1,0 +1,31 @@
+{
+  "voices": [
+    {
+      "name": "Microsoft David - English (United States)",
+      "language": "en-US",
+      "local": true
+    },
+    {
+      "name": "Microsoft Ravi - English (India)",
+      "language": "en-IN",
+      "local": true
+    },
+    {
+      "name": "Microsoft Heera - English (India)",
+      "language": "en-IN",
+      "local": true
+    },
+    {
+      "name": "Microsoft Mark - English (United States)",
+      "language": "en-US",
+      "local": true
+    },
+    {
+      "name": "Microsoft Zira - English (United States)",
+      "language": "en-US",
+      "local": true
+    }
+  ],
+  "errors": [],
+  "note": "Voices reported by the real browser; no speech audio quality evaluation and no microphone session performed."
+}

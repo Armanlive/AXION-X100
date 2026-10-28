@@ -393,7 +393,7 @@ export const PreviewActivityDrawer: React.FC = () => {
                     </div>
 
                     <div className="text-[10px] text-zinc-500 font-mono">
-                      Ready for Boss Agent modifications & hot reload
+                      Ready for Supreme Core modifications & hot reload
                     </div>
                   </div>
                 </div>
@@ -477,7 +477,7 @@ export const PreviewActivityDrawer: React.FC = () => {
 
           {/* Activity Footer */}
           <div className="p-2.5 border-t border-zinc-800 bg-[#0e0e11] text-[11px] font-mono text-zinc-500 flex items-center justify-between">
-            <span className="truncate">Active Agent: {activeAgent?.name || 'Boss Agent'}</span>
+            <span className="truncate">Active Agent: {activeAgent?.name || 'Supreme Core'}</span>
             <span className="text-zinc-400">Zero Silent Writes Enforced</span>
           </div>
         </div>

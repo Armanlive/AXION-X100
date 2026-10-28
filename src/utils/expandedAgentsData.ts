@@ -6,7 +6,7 @@ export const EXPANDED_SPECIALIST_AGENTS: Agent[] = [
   // ==========================================
   {
     id: 'boss-agent',
-    name: 'Boss Agent',
+    name: 'Supreme Core',
     role: 'boss',
     category: 'COMMAND',
     avatar: '👑',

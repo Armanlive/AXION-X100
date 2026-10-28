@@ -1,0 +1,16 @@
+{
+  "errors": [],
+  "checks": [
+    "Browser shell opening is blocked",
+    "Successful IPC open sets shell state",
+    "Large Unicode paste remains ordered before later input",
+    "IPC chunks do not split surrogate pairs",
+    "Rendered output acknowledges flow-control bytes",
+    "Hiding terminal preserves session",
+    "Remount does not spawn another shell",
+    "Restart resets failed stdin queue",
+    "Shell exit status comes from IPC",
+    "Closing requests native process cleanup"
+  ],
+  "note": "IPC test adapter only. No real native shell was started."
+}

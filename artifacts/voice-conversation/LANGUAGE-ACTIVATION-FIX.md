@@ -1,0 +1,13 @@
+# Voice language and activation correction
+
+Visible Hindi replies now default to Roman Hinglish; spoken Hindi is passed separately as Devanagari to device speech synthesis. Explicit requests to write Hindi are tracked from conversation history. English replies use English output voices. The provider returns validated JSON containing display and speech text; incomplete responses fail instead of displaying raw JSON. This means provider replies appear after the complete response rather than token-by-token.
+
+Local greetings and panel confirmations use the same display/speech split. The English Hello AXION shortcut now actually submits English. Selected local voices are used only when their language matches the reply; remote voices are not selected.
+
+Wake controls clearly distinguish MIC OFF and active wake/clap listening. Switching tabs explains the microphone pause. Microphone retry now enables a muted microphone. Missing output voice warnings open Voice settings rather than retrying microphone capture. Experimental clap capture requests noise suppression off, and toggling clap mode restarts capture. No fabricated input levels are used.
+
+Validation executed: npm.cmd run lint (pass); npm.cmd test (22 pass); npm.cmd run build (pass, existing large chunk warning); node artifacts/voice-conversation/check-browser.mjs (15 synthetic engine checks and 7 intercepted provider/conversation checks pass); node artifacts/voice-conversation/check-ui-integration.mjs (pass, additionally asserts Hindi speech while Roman text is visible); node artifacts/voice-conversation/capture-ui.mjs (desktop/mobile capture, no page errors). Desktop screenshot inspected for layout.
+
+Real browser device inventory again found only local English voices, including Ravi and Heera (en-IN); no local hi-IN voice. No paid or remote speech service added. Real microphone, physical claps, audible speech quality, live Gemini output and native Tauri runtime remain unverified. Synthetic checks demonstrate wiring, not hardware reliability or model compliance. Speech recognition still uses the selected browser locale; automatic bilingual recognition quality is not guaranteed. Source transcripts preserve what the recognizer actually returned.
+
+Changed production files: src/utils/conversationLanguage.ts; src/utils/aiOrchestrator.ts; src/utils/voiceActivation.ts; src/utils/voiceEngine.ts; src/store/useAxionStore.ts; src/hooks/useVoiceSession.ts; src/components/voice/VoiceActivationControls.tsx; src/components/LiveSpeechMode.tsx. Regression tests and artifacts updated. No Rust, security, Living Core or PRD changes in this correction.

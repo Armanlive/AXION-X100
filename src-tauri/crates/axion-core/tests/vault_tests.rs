@@ -10,6 +10,7 @@ use tempfile::tempdir;
 // BASIC LIFECYCLE & INTEGRITY TESTS
 // ============================================================
 
+#[cfg(unix)]
 #[test]
 fn test_integration_vault_lifecycle_create_and_restore() {
     let ws_dir = tempdir().expect("Failed to create ws_dir");
@@ -51,6 +52,7 @@ fn test_integration_vault_lifecycle_create_and_restore() {
 }
 
 // S: corrupted payload fails closed
+#[cfg(unix)]
 #[test]
 fn test_integration_vault_integrity_failing_closed() {
     let ws_dir = tempdir().expect("Failed to create ws_dir");
@@ -86,6 +88,7 @@ fn test_integration_vault_integrity_failing_closed() {
 }
 
 // T: snapshot from Workspace A rejected under Workspace B
+#[cfg(unix)]
 #[test]
 fn test_integration_vault_cross_workspace_isolation() {
     let ws_a = tempdir().expect("Failed to create ws_a");
@@ -121,6 +124,7 @@ fn test_integration_vault_cross_workspace_isolation() {
 }
 
 // V: nonexistent-original rollback remains unsupported and non-destructive
+#[cfg(unix)]
 #[test]
 fn test_integration_vault_nonexistent_file_handling() {
     let ws_dir = tempdir().expect("Failed to create ws_dir");
@@ -277,6 +281,7 @@ fn test_adversarial_f_windows_vault_junction_redirection_rejected() {
 }
 
 // G: metadata relative_path tampering rejected
+#[cfg(unix)]
 #[test]
 fn test_adversarial_g_metadata_relative_path_tampering_rejected() {
     let ws_dir = tempdir().expect("ws");
@@ -309,6 +314,7 @@ fn test_adversarial_g_metadata_relative_path_tampering_rejected() {
 }
 
 // H: metadata workspace binding tampering rejected
+#[cfg(unix)]
 #[test]
 fn test_adversarial_h_metadata_workspace_binding_tampering_rejected() {
     let ws_dir = tempdir().expect("ws");
@@ -341,6 +347,7 @@ fn test_adversarial_h_metadata_workspace_binding_tampering_rejected() {
 }
 
 // I: metadata payload hash tampering rejected
+#[cfg(unix)]
 #[test]
 fn test_adversarial_i_metadata_payload_hash_tampering_rejected() {
     let ws_dir = tempdir().expect("ws");
@@ -374,6 +381,7 @@ fn test_adversarial_i_metadata_payload_hash_tampering_rejected() {
 }
 
 // J: metadata size tampering rejected
+#[cfg(unix)]
 #[test]
 fn test_adversarial_j_metadata_size_tampering_rejected() {
     let ws_dir = tempdir().expect("ws");
@@ -406,6 +414,7 @@ fn test_adversarial_j_metadata_size_tampering_rejected() {
 }
 
 // K: payload + hash metadata tampering still rejected because metadata MAC fails
+#[cfg(unix)]
 #[test]
 fn test_adversarial_k_payload_and_hash_tampering_rejected_by_mac() {
     use sha2::{Digest, Sha256};
@@ -468,6 +477,7 @@ fn test_adversarial_l_unknown_snapshot_id_rejected() {
 }
 
 // M: pre-existing .data collision cannot be overwritten
+#[cfg(unix)]
 #[test]
 fn test_adversarial_m_preexisting_data_collision_rejected() {
     let ws_dir = tempdir().expect("ws");
@@ -498,6 +508,7 @@ fn test_adversarial_m_preexisting_data_collision_rejected() {
 }
 
 // N: pre-existing .meta.json collision cannot be overwritten
+#[cfg(unix)]
 #[test]
 fn test_adversarial_n_preexisting_meta_collision_rejected() {
     let ws_dir = tempdir().expect("ws");
@@ -609,34 +620,155 @@ fn test_race_hook_b_destination_symlink_swap_does_not_escape() {
 // WINDOWS EXISTING-FILE REPLACEMENT TEST (Section 10)
 // ============================================================
 
+// ============================================================
+// WINDOWS FAIL-CLOSED SECURITY CONTRACT TESTS (Phase 2 Step-1A.2)
+// ============================================================
+
+// A. create_snapshot fail-closed on Windows
 #[cfg(windows)]
 #[test]
-fn test_windows_existing_file_replacement_and_exact_bytes() {
+fn test_windows_create_snapshot_fail_closed() {
     let ws_dir = tempdir().expect("ws");
     let ws_root = fs::canonicalize(ws_dir.path()).unwrap();
     let vault_dir = tempdir().expect("vault");
 
     let file_path = ws_root.join("data.txt");
-    let original_bytes = b"ORIGINAL CONTENT FROM SNAPSHOT";
+    fs::write(&file_path, b"ORIGINAL CONTENT").unwrap();
+
+    let mut mgr = WorkspaceManager::new();
+    mgr.set_workspace_root(&ws_root).unwrap();
+
+    let vault = SnapshotVault::new_with_custom_root_for_test(vault_dir.path(), None).unwrap();
+
+    let snap_res = vault.create_snapshot(&mgr, "data.txt");
+    assert!(
+        matches!(snap_res, Err(VaultError::SecureMutationUnsupportedOnPlatform)),
+        "Expected Err(SecureMutationUnsupportedOnPlatform), got: {:?}",
+        snap_res
+    );
+}
+
+// B. restore_snapshot fail-closed on Windows
+#[cfg(windows)]
+#[test]
+fn test_windows_restore_snapshot_fail_closed() {
+    let ws_dir = tempdir().expect("ws");
+    let ws_root = fs::canonicalize(ws_dir.path()).unwrap();
+    let vault_dir = tempdir().expect("vault");
+
+    let mut mgr = WorkspaceManager::new();
+    mgr.set_workspace_root(&ws_root).unwrap();
+
+    let vault = SnapshotVault::new_with_custom_root_for_test(vault_dir.path(), None).unwrap();
+
+    let restore_res = vault.restore_snapshot(&mgr, "snap_0123456789abcdef0123456789abcdef");
+    assert!(
+        matches!(restore_res, Err(VaultError::SecureMutationUnsupportedOnPlatform)),
+        "Expected Err(SecureMutationUnsupportedOnPlatform), got: {:?}",
+        restore_res
+    );
+}
+
+// C. Failed restore does NOT modify the target file
+#[cfg(windows)]
+#[test]
+fn test_windows_target_file_unchanged_after_rejected_restore() {
+    let ws_dir = tempdir().expect("ws");
+    let ws_root = fs::canonicalize(ws_dir.path()).unwrap();
+    let vault_dir = tempdir().expect("vault");
+
+    let file_path = ws_root.join("data.txt");
+    let original_bytes = b"IMMUTABLE PRE-EXISTING DATA";
     fs::write(&file_path, original_bytes).unwrap();
 
     let mut mgr = WorkspaceManager::new();
     mgr.set_workspace_root(&ws_root).unwrap();
 
     let vault = SnapshotVault::new_with_custom_root_for_test(vault_dir.path(), None).unwrap();
-    let snap = vault.create_snapshot(&mgr, "data.txt").unwrap();
 
-    // Change file content to simulate pre-existing modified target
-    fs::write(&file_path, b"OLD/CURRENT CONTENT MODIFIED").unwrap();
-    assert_eq!(fs::read(&file_path).unwrap(), b"OLD/CURRENT CONTENT MODIFIED");
+    let restore_res = vault.restore_snapshot(&mgr, "snap_0123456789abcdef0123456789abcdef");
+    assert!(matches!(restore_res, Err(VaultError::SecureMutationUnsupportedOnPlatform)));
 
-    // Secure restore replaces the existing file
-    let restored = vault.restore_snapshot(&mgr, &snap.id).expect("Windows restore failed");
-    assert_eq!(restored.id, snap.id);
-
-    // Verify exact original bytes restored on disk
+    // Target file on disk must be identical and unchanged
     let current_bytes = fs::read(&file_path).unwrap();
     assert_eq!(current_bytes, original_bytes);
+}
+
+// D. No successful mutation or snapshot claim is emitted
+#[cfg(windows)]
+#[test]
+fn test_windows_no_mutation_claim_emitted() {
+    let ws_dir = tempdir().expect("ws");
+    let ws_root = fs::canonicalize(ws_dir.path()).unwrap();
+    let vault_dir = tempdir().expect("vault");
+
+    let file_path = ws_root.join("data.txt");
+    fs::write(&file_path, b"TEST DATA").unwrap();
+
+    let mut mgr = WorkspaceManager::new();
+    mgr.set_workspace_root(&ws_root).unwrap();
+
+    let vault = SnapshotVault::new_with_custom_root_for_test(vault_dir.path(), None).unwrap();
+
+    let snap_res = vault.create_snapshot(&mgr, "data.txt");
+    assert!(snap_res.is_err());
+
+    let restore_res = vault.restore_snapshot(&mgr, "snap_0123456789abcdef0123456789abcdef");
+    assert!(restore_res.is_err());
+
+    // Vault snapshots list must be completely empty
+    let snapshots = vault.list_snapshots(None).unwrap();
+    assert!(snapshots.is_empty());
+}
+
+// ============================================================
+// UNIX NON-UTF8 PATH SAFETY TEST (Phase 2 Step-1A.2)
+// ============================================================
+
+#[cfg(unix)]
+#[test]
+fn test_unix_non_utf8_path_rejection_before_mutation() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+
+    let ws_dir = tempdir().expect("ws");
+    let ws_root = fs::canonicalize(ws_dir.path()).unwrap();
+    let vault_dir = tempdir().expect("vault");
+
+    // Construct raw invalid UTF-8 filename bytes: 0x80 and 0xFF form an invalid UTF-8 byte sequence
+    let invalid_bytes: &[u8] = b"invalid_\x80\xFF_filename.txt";
+    let invalid_os_str = OsStr::from_bytes(invalid_bytes);
+    let invalid_path = ws_root.join(invalid_os_str);
+
+    // Create the physical file with raw invalid bytes on the Unix filesystem
+    fs::write(&invalid_path, b"RAW NON-UTF8 FILE DATA").expect("write raw non-utf8 file");
+    assert!(invalid_path.exists());
+
+    let mut mgr = WorkspaceManager::new();
+    mgr.set_workspace_root(&ws_root).unwrap();
+
+    let vault = SnapshotVault::new_with_custom_root_for_test(vault_dir.path(), None).unwrap();
+
+    // Attempt create_snapshot with the non-UTF8 filename
+    let res = vault.create_snapshot(&mgr, invalid_os_str);
+
+    // Assert: Explicit structured rejection occurs BEFORE mutation with defined error
+    assert!(
+        matches!(res, Err(VaultError::InvalidPathEncoding(_))),
+        "Expected Err(VaultError::InvalidPathEncoding), got: {:?}",
+        res
+    );
+
+    // Assert: No snapshot metadata or payload was created in the vault
+    let snapshots_list = vault.list_snapshots(None).unwrap();
+    assert!(
+        snapshots_list.is_empty(),
+        "Vault created a snapshot despite invalid non-UTF-8 path!"
+    );
+
+    // Assert: Original file on disk remains completely untouched
+    let disk_content = fs::read(&invalid_path).unwrap();
+    assert_eq!(disk_content, b"RAW NON-UTF8 FILE DATA");
 }
 
 // U: incomplete/orphan payload is never considered a valid snapshot

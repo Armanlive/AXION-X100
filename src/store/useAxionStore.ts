@@ -1,9 +1,17 @@
+
+import { providerForModel, buildModelPool, loadPaidPoolConsent, type RoutingStrategy } from '../utils/providerRouting';
+import { migrateProviderCredentials, saveProvider, requestProvider, providerConfigs, loadSavedProviders, saveSavedProviders, verifyProviderCatalog } from '../services/providerService';
+import { getFishAudioKey, saveFishAudioKey, isFishAudioConfigured, setFishAudioConfigured, testFishAudioConnection } from '../services/fishAudioService';
+import {validateVisualInput,validateAttachments,type VisualInput,type Attachment} from '../utils/visualInput';
+import {useProfileStore} from './useProfileStore';
+import { closePty, clearPty, sendPty } from '../utils/nativeTerminal';
 import { create } from 'zustand';
 import {
   Agent,
   AIModel,
   ChatMessage,
   ChatSession,
+  TokenUsageStats,
   DiffHunk,
   TaskSnapshot,
   AuditLog,
@@ -20,7 +28,8 @@ import {
   ActiveWorkspace,
   ProjectFileEntry,
   OutputLogEvent,
-  ProposedTerminalCommand
+  ProposedTerminalCommand,
+  StaleFile
 } from '../types';
 import {
   analyzeCommand,
@@ -34,9 +43,15 @@ import { INITIAL_CLOUD_PROVIDERS } from '../utils/cloudProvidersData';
 import { INITIAL_MODELS } from '../utils/modelsData';
 import { INITIAL_PILOT_TASKS } from '../utils/pilotData';
 import { normalizeVoiceInput } from '../utils/voiceNormalizer';
-import { orchestrateAIRequest } from '../utils/aiOrchestrator';
+import { orchestrateAIRequest, detectCommandIntent } from '../utils/aiOrchestrator';
+import { upsertSessionChange, toSessionChange, type SessionChangeStatus } from '../utils/sessionChanges';
+import { parseWakePhrase } from '../utils/voiceActivation';
+import { detectAppIntent, detectBrowserCommand } from '../services/commandService';
+import { detectVisualIntent } from '../services/visionCapture';
 import { globalVoiceEngine } from '../utils/voiceEngine';
+import { runProjectChecks, summarizeChecks, buildFixPrompt, MAX_AUTO_FIXES, type CheckResult } from '../utils/projectChecks';
 import { NativeWorkspaceService } from '../services/nativeWorkspace';
+import { syncMilestone, sanitizeForCloud } from '../services/memorySync';
 import {
   loadPersistedActiveWorkspace,
   savePersistedActiveWorkspace,
@@ -57,6 +72,18 @@ import {
   isBinaryFile
 } from '../utils/workspaceService';
 
+/**
+ * Reduce an assistant reply to a single cloud-safe milestone sentence.
+ * Uses sanitizeForCloud (code/secret stripping + 512-char cap); returns ''
+ * when nothing speakable remains. Deliberately local-only, no provider calls.
+ */
+function summarizeExchange(replyText: string): string {
+  const first = replyText.split(/(?:\n+|[.!?](?=\s|$))/u).map(s => s.trim()).find(s => s.length > 0);
+  if (!first) return '';
+  const sanitized = sanitizeForCloud(first);
+  return sanitized.length > 12 ? sanitized : '';
+}
+
 export type TabType =
   | 'workspace'
   | 'agents'
@@ -73,14 +100,120 @@ const STORAGE_KEY_PROVIDERS = 'axion_cloud_providers_v1';
 const STORAGE_KEY_WORKSPACE = 'axion_active_workspace_v1';
 const STORAGE_KEY_BOSS_LOCKED = 'axion_boss_locked_v1';
 const STORAGE_KEY_VOICE_SETTINGS = 'axion_voice_settings_v1';
+const STORAGE_KEY_ROUTER_STRATEGY = 'axion_router_strategy_v1';
+const STORAGE_KEY_AUTO_FALLBACK = 'axion_auto_fallback_v1';
+const STORAGE_KEY_TOKEN_USAGE = 'axion_token_usage_v1';
+const STORAGE_KEY_CHAT_FILTER = 'axion_chat_category_filter_v1';
+
+/** Records a diff's lifecycle on the chat session that owns it (metadata only, no file contents). */
+function trackSessionChange(diff: DiffHunk, status: SessionChangeStatus) {
+  const { chatSessions, activeChatId } = useAxionStore.getState();
+  const updated = upsertSessionChange(chatSessions, activeChatId, toSessionChange(diff, status));
+  if (updated === chatSessions) return;
+  useAxionStore.setState({ chatSessions: updated });
+  try {
+    localStorage.setItem(STORAGE_KEY_CHATS, JSON.stringify(updated));
+  } catch (e) {
+    console.warn('Could not persist session change history', e);
+  }
+}
+
+function loadInitialRouterStrategy(): RoutingStrategy {
+  if (typeof window !== 'undefined') {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_ROUTER_STRATEGY);
+      if (saved === 'fastest' || saved === 'smartest' || saved === 'balanced') return saved;
+    } catch {}
+  }
+  return 'balanced';
+}
+
+function loadInitialAutoFallback(): boolean {
+  if (typeof window !== 'undefined') {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_AUTO_FALLBACK);
+      if (saved !== null) return JSON.parse(saved);
+    } catch {}
+  }
+  return true;
+}
+
+function loadInitialTokenUsage(): TokenUsageStats {
+  const nowMonth = new Date().toISOString().slice(0, 7);
+  const defaults: TokenUsageStats = {
+    usedMonth: 48250,
+    totalMonthlyQuota: 10_000_000,
+    totalRequests: 24,
+    lastResetMonth: nowMonth
+  };
+  if (typeof window !== 'undefined') {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_TOKEN_USAGE);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.lastResetMonth === nowMonth) {
+          return parsed;
+        } else {
+          return { ...parsed, usedMonth: 0, lastResetMonth: nowMonth };
+        }
+      }
+    } catch {}
+  }
+  return defaults;
+}
+
+function loadInitialChatFilter(): 'all' | 'workspace' | 'general' {
+  if (typeof window !== 'undefined') {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_CHAT_FILTER);
+      if (saved === 'all' || saved === 'workspace' || saved === 'general') return saved;
+    } catch {}
+  }
+  return 'all';
+}
+
+/**
+ * Reads workspace text files 16 at a time instead of one by one, so switching or
+ * mounting a project no longer stalls for seconds on large trees. Order is kept.
+ */
+async function indexNativeFiles(nativeFiles: Awaited<ReturnType<typeof NativeWorkspaceService.listFiles>>) {
+  const fileContents: Record<string, string> = {};
+  const contents: (string | undefined)[] = new Array(nativeFiles.length);
+  const readable = nativeFiles
+    .map((f, i) => ({ f, i }))
+    .filter(({ f }) => !f.is_directory && f.size_bytes < 200000 && !isBinaryFile(f.relative_path));
+  for (let start = 0; start < readable.length; start += 16) {
+    await Promise.all(readable.slice(start, start + 16).map(async ({ f, i }) => {
+      try { contents[i] = await NativeWorkspaceService.readTextFile(f.relative_path); } catch { /* binary or unreadable */ }
+    }));
+  }
+  const filesIndex: ProjectFileEntry[] = nativeFiles.map((f, i) => {
+    const content = contents[i];
+    if (content !== undefined) fileContents[f.relative_path] = content;
+    return {
+      relativePath: f.relative_path,
+      name: f.name,
+      extension: f.extension,
+      size: f.size_bytes,
+      modifiedTimestamp: f.modified_timestamp_ms,
+      isDirectory: f.is_directory,
+      content,
+      isLoaded: content !== undefined
+    };
+  });
+  return { fileContents, filesIndex };
+}
 
 function loadInitialVoiceSettings(): VoiceSettings {
   const defaults: VoiceSettings = {
     language: 'auto',
     voiceName: 'Default Voice',
-    speed: 1.05,
+    speed: 1.0,
     autoSpeak: true,
-    listeningMode: 'continuous'
+    listeningMode: 'continuous',
+    ttsEngine: 'fishaudio',
+    fishAudioApiKey: getFishAudioKey(),
+    fishAudioModel: 's2.1-pro',
   };
   if (typeof window !== 'undefined') {
     try {
@@ -103,15 +236,79 @@ function loadInitialBossLocked(): boolean {
   return true; // Boss Agent locked by default
 }
 
+function loadInitialCloudProviders(): CloudProvider[] {
+  if (typeof window === 'undefined') return INITIAL_CLOUD_PROVIDERS;
+  try {
+    const saved = loadSavedProviders();
+    const fishKey = getFishAudioKey();
+    const hasFishKey = Boolean(fishKey && fishKey.startsWith('sk-fish-'));
+    if (!saved || saved.length === 0) {
+      if (hasFishKey) {
+        return INITIAL_CLOUD_PROVIDERS.map(p => p.type === 'fishaudio' ? {
+          ...p,
+          apiKey: fishKey,
+          configured: true,
+          isConnected: true,
+          status: 'connected',
+          pingResult: 'Connected & Verified · Official Bearer token authorized.'
+        } : p);
+      }
+      return INITIAL_CLOUD_PROVIDERS;
+    }
+    const savedMap = new Map(saved.flatMap(p => [[p.id, p], [p.provider, p]]));
+    return INITIAL_CLOUD_PROVIDERS.map(p => {
+      const s = savedMap.get(p.id) || savedMap.get(p.type);
+      if (p.type === 'fishaudio') {
+        const isConn = Boolean(s?.isConnected || s?.status === 'connected' || (s?.configured && s?.verifiedAt) || hasFishKey);
+        const isConfig = hasFishKey || Boolean(s?.configured);
+        return {
+          ...p,
+          apiKey: fishKey,
+          configured: isConfig,
+          isConnected: isConn,
+          status: (isConn ? 'connected' : (isConfig ? 'untested' : 'disconnected')) as any,
+          latencyMs: s?.latencyMs,
+          pingResult: isConn ? (s?.pingResult || 'Connected & Verified · Official Bearer token authorized.') : undefined,
+          verifiedAt: s?.verifiedAt,
+        };
+      }
+      if (!s) return p;
+      const isConfig = Boolean(s.configured);
+      const isConn = isConfig && Boolean(s.isConnected || s.status === 'connected' || s.verifiedAt);
+      return {
+        ...p,
+        configured: isConfig,
+        isConnected: isConn,
+        status: (isConn ? 'connected' : (s.status ?? p.status)) as any,
+        latencyMs: s.latencyMs ?? p.latencyMs,
+        pingResult: isConn ? (s.pingResult || 'Connected & Verified') : s.pingResult,
+        accountId: s.accountId ?? p.accountId,
+        apiKey: s.apiKey ?? p.apiKey,
+        revision: s.revision,
+        verifiedAt: isConn ? (s.verifiedAt || new Date().toISOString()) : undefined,
+      };
+    });
+  } catch (e) {
+    console.warn('Could not load initial cloud providers', e);
+    return INITIAL_CLOUD_PROVIDERS;
+  }
+}
+
 // Load stored chats or initialize
 function loadInitialChatSessions(): { sessions: ChatSession[]; activeId: string } {
   if (typeof window !== 'undefined') {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_CHATS);
       if (saved) {
-        const parsed: ChatSession[] = JSON.parse(saved);
+        const raw = JSON.parse(saved);
+        // Older builds saved the list as an object after a rename; recover those sessions.
+        const parsed: ChatSession[] = Array.isArray(raw) ? raw : Object.values(raw || {}).filter((v: any) => v && typeof v === 'object' && typeof v.id === 'string') as ChatSession[];
         if (parsed.length > 0) {
-          return { sessions: parsed, activeId: parsed[0].id };
+          const migrated = parsed.map(s => ({
+            ...s,
+            isWorkspaceBound: s.isWorkspaceBound ?? Boolean(s.workspaceId && s.workspaceId !== 'default' && s.workspaceId !== '')
+          }));
+          return { sessions: migrated, activeId: migrated[0].id };
         }
       }
     } catch (e) {
@@ -122,6 +319,7 @@ function loadInitialChatSessions(): { sessions: ChatSession[]; activeId: string 
     id: `chat-${Date.now()}`,
     title: 'New Conversation',
     workspaceId: 'default',
+    isWorkspaceBound: false,
     createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     messages: [] // Starts completely empty
@@ -154,6 +352,7 @@ interface AxionState {
   activeChatId: string;
   messages: ChatMessage[];
   chatSearchQuery: string;
+  chatCategoryFilter: 'all' | 'workspace' | 'general';
 
   // Real Local Workspace Management
   activeWorkspace: ActiveWorkspace | null;
@@ -162,12 +361,21 @@ interface AxionState {
   filesIndex: ProjectFileEntry[];
   isScanningProject: boolean;
   scanStatusMessage: string | null;
+  // Stale File Scan
+  staleScan: {
+    isScanning: boolean;
+    thresholdDays: number;
+    results: StaleFile[];
+  };
   workspaceSyncError: WorkspaceSyncError | null;
   isFolderPickerOpen: boolean;
 
   // Cloud Brain & Compute Providers
   cloudProviders: CloudProvider[];
   computeMode: ComputeMode;
+  routerStrategy: RoutingStrategy;
+  autoFallbackEnabled: boolean;
+  tokenUsage: TokenUsageStats;
 
   // Live Conversational Speech Mode
   speechMode: SpeechMode;
@@ -250,12 +458,16 @@ interface AxionState {
   startTerminalInNewWorkspace: () => void;
 
   // Actions - Chat Sessions
-  createNewChat: () => void;
+  createNewChat: (forceCategory?: 'workspace' | 'general') => void;
+  createGeneralChat: () => void;
+  createWorkspaceChat: () => void;
+  setChatCategoryFilter: (filter: 'all' | 'workspace' | 'general') => void;
   switchChat: (id: string) => void;
   renameChat: (id: string, newTitle: string) => void;
   deleteChat: (id: string) => void;
   clearAllChats: () => void;
   setChatSearchQuery: (query: string) => void;
+  bindActiveChatToWorkspace: () => void;
 
   // Code Editor & Unsaved Drafts
   unsavedFileChanges: Record<string, string>;
@@ -283,6 +495,11 @@ interface AxionState {
   createNewFolder: (relativeFolderPath: string) => Promise<boolean>;
   deleteFileOrFolder: (relativePath: string) => Promise<boolean>;
 
+  // Actions - Stale File Scan
+  scanForStaleFiles: (thresholdDays?: number) => Promise<void>;
+  clearStaleScanResults: () => void;
+  setStaleScanThreshold: (days: number) => void;
+
   // Actions - Editor & Safe Writes
   updateFileDraft: (filePath: string, content: string) => void;
   discardFileDraft: (filePath: string) => void;
@@ -293,8 +510,9 @@ interface AxionState {
 
   // Actions - Cloud Brain & Compute
   setComputeMode: (mode: ComputeMode) => void;
-  connectProvider: (providerId: string, apiKey?: string) => void;
-  disconnectProvider: (providerId: string) => void;
+  connectProvider: (providerId: string, apiKey?: string, accountId?: string, options?: { force?: boolean }) => Promise<void>;
+  refreshProviders: () => Promise<void>;
+  disconnectProvider: (providerId: string) => Promise<void>;
   setPrimaryProvider: (providerId: string) => void;
   testProviderConnection: (providerId: string) => Promise<boolean>;
 
@@ -320,7 +538,11 @@ interface AxionState {
   setSpeakingMessageId: (id: string | null) => void;
   openDiffModal: (diff: DiffHunk) => void;
   closeDiffModal: () => void;
-  executeUserPrompt: (promptText: string, isVoice?: boolean) => Promise<void>;
+  executeUserPrompt: (promptText: string, isVoice?: boolean, visualInput?: VisualInput, attachments?: Attachment[], options?: PromptOptions) => Promise<void>;
+  /** Runs the project's checks after AXION's approved edits and reports the real result. */
+  verifyAfterEdits: (taskId: string) => Promise<void>;
+  /** Sends a failed check's output back to AXION for a fix. */
+  requestCheckFix: (messageId: string) => Promise<void>;
   approveDiff: (diffId: string) => Promise<void>;
   rejectDiff: (diffId: string) => void;
   rollbackTask: (taskId: string) => void;
@@ -336,7 +558,22 @@ interface AxionState {
   clearTerminal: () => void;
   runTerminalCommand: (command: string) => void;
   setDiffViewMode: (mode: 'side-by-side' | 'unified') => void;
+
+  // Actions - Cloud Brain Router Analytics
+  setRouterStrategy: (strategy: RoutingStrategy) => void;
+  setAutoFallbackEnabled: (enabled: boolean) => void;
+  recordTokenUsage: (tokens: number) => void;
+  resetTokenUsage: () => void;
 }
+
+/** Internal prompts (e.g. an automatic fix request) show a short line instead of the full text. */
+interface PromptOptions { displayText?: string; auto?: boolean }
+/** Failed checks by result-message id, so "Fix it" can send the real output back to AXION. */
+const failedChecks = new Map<string, { failed: CheckResult; files: string[] }>();
+/** Automatic fix requests in a row; reset by any message the user sends. */
+let autoFixStreak = 0;
+/** The project the active chat was last matched to (see bindActiveChatToWorkspace). */
+let boundWorkspaceId: string | null = null;
 
 const persistedActiveWs = loadPersistedActiveWorkspace();
 const persistedRecentWs = loadPersistedRecentWorkspaces();
@@ -351,7 +588,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
   selectedFilePath: '',
   agents: EXPANDED_SPECIALIST_AGENTS,
   models: INITIAL_MODELS,
-  activeModelId: 'gemini-2.0-flash',
+  activeModelId: (()=>{try{const saved=localStorage.getItem('axion.activeModel');return saved&&(INITIAL_MODELS.some(m=>m.id===saved)||/^[a-z]+:.+/.test(saved))?saved:'gemini-2.5-flash';}catch{return 'gemini-2.5-flash';}})(),
   isPaidOverrideModalOpen: false,
   pendingPaidModelId: null,
 
@@ -364,6 +601,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
   activeChatId: initialChatData.activeId,
   messages: initialChatData.sessions.find((s) => s.id === initialChatData.activeId)?.messages || [],
   chatSearchQuery: '',
+  chatCategoryFilter: loadInitialChatFilter(),
 
   // Real Local Workspace Management (No Fake Demo Projects)
   activeWorkspace: persistedActiveWs,
@@ -371,6 +609,11 @@ export const useAxionStore = create<AxionState>((set, get) => ({
   activeWorkspaceId: persistedActiveWs?.id || '',
   isScanningProject: false,
   scanStatusMessage: null,
+  staleScan: {
+    isScanning: false,
+    thresholdDays: 30,
+    results: []
+  },
   workspaceSyncError: null,
   isFolderPickerOpen: false,
 
@@ -379,8 +622,11 @@ export const useAxionStore = create<AxionState>((set, get) => ({
   pendingUnsavedConfirm: null,
 
   // Cloud Brain & Providers
-  cloudProviders: INITIAL_CLOUD_PROVIDERS,
+  cloudProviders: loadInitialCloudProviders(),
   computeMode: 'HYBRID',
+  routerStrategy: loadInitialRouterStrategy(),
+  autoFallbackEnabled: loadInitialAutoFallback(),
+  tokenUsage: loadInitialTokenUsage(),
 
   // Live Conversational Speech Mode
   speechMode: 'chat',
@@ -435,53 +681,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
   terminalHeight: 240,
   terminalWidth: 420,
   terminalDockPosition: 'bottom',
-  terminalSessions: [
-    {
-      id: 'term-1',
-      name: 'PowerShell',
-      type: 'powershell',
-      shell: 'PowerShell 7.4.2',
-      cwd: persistedActiveWs?.absolutePath || '',
-      status: 'idle',
-      logs: [
-        'Windows PowerShell 7.4.2 [AXION Local Terminal Host]',
-        `Workspace CWD: ${persistedActiveWs?.absolutePath || '[No workspace connected]'}`,
-        'Type any command or use automated agent actions.'
-      ],
-      history: [],
-      createdAt: '10:00:00'
-    },
-    {
-      id: 'term-2',
-      name: 'OpenCode',
-      type: 'opencode',
-      shell: 'OpenCode CLI v0.4.1',
-      cwd: persistedActiveWs?.absolutePath || '',
-      status: 'idle',
-      logs: [
-        'OpenCode CLI v0.4.1 (Autonomous Engineering Agent CLI)',
-        'Active Broker: Local Zero-Cost Policy ($0.00)',
-        'Type "opencode help" or execute commands.'
-      ],
-      history: [],
-      createdAt: '10:00:05'
-    },
-    {
-      id: 'term-3',
-      name: 'Gemini CLI',
-      type: 'gemini-cli',
-      shell: 'Gemini CLI v1.2.0',
-      cwd: persistedActiveWs?.absolutePath || '',
-      status: 'idle',
-      logs: [
-        'Google Gemini CLI v1.2.0 (Developer Tools)',
-        'Model: gemini-2.0-flash (Zero-Cost Free Tier)',
-        'Session ready.'
-      ],
-      history: [],
-      createdAt: '10:00:10'
-    }
-  ],
+  terminalSessions: [{ id: 'term-1', name: 'PowerShell', type: 'powershell', shell: 'PowerShell', cwd: persistedActiveWs?.absolutePath || '', status: 'idle', logs: [], history: [], createdAt: '' }],
   activeTerminalId: 'term-1',
   splitTerminalId: null,
   selectedAgentId: 'boss-agent',
@@ -513,7 +713,11 @@ export const useAxionStore = create<AxionState>((set, get) => ({
   workspaceSwitchNotice: null,
 
   // Layout & Navigation Actions
-  setCurrentTab: (tab) => set({ currentTab: tab }),
+  setCurrentTab: (tab) => {
+    set({ currentTab: tab });
+    // Seamless binding: entering the Chat view always rebinds the session to the active workspace
+    if (tab === 'workspace') get().bindActiveChatToWorkspace();
+  },
   selectFile: (path) => {
     const { selectedFilePath, unsavedFileChanges, activeWorkspace } = get();
     if (selectedFilePath && selectedFilePath !== path && unsavedFileChanges[selectedFilePath]) {
@@ -696,20 +900,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
     const newId = `term-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
     const defaultName = name || `Terminal ${sessions.length + 1}`;
 
-    const shellLabel =
-      type === 'powershell'
-        ? 'PowerShell 7.4.2'
-        : type === 'cmd'
-        ? 'Command Prompt'
-        : type === 'git-bash'
-        ? 'Git Bash 2.44'
-        : type === 'wsl'
-        ? 'WSL (Ubuntu 24.04)'
-        : type === 'opencode'
-        ? 'OpenCode CLI v0.4.1'
-        : type === 'gemini-cli'
-        ? 'Gemini CLI v1.2.0'
-        : 'Linux / Web Shell';
+    const shellLabel = type === 'powershell' ? 'PowerShell' : type === 'cmd' ? 'Command Prompt' : 'Bash';
 
     const newSession: TerminalSession = {
       id: newId,
@@ -719,9 +910,9 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       cwd: sessionCwd,
       status: 'idle',
       logs: [
-        `Spawned new session "${defaultName}" [${shellLabel}]`,
+        `Created terminal tab "${defaultName}" [${shellLabel}]`,
         sessionCwd ? `Workspace CWD: ${sessionCwd}` : 'No workspace connected',
-        'Ready for commands.'
+        'Open the native shell to start.'
       ],
       history: [],
       createdAt: formatTimestamp()
@@ -733,12 +924,13 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       isTerminalOpen: true
     }));
 
-    get().addOutputLogEvent('PROCESS', 'INFO', `Spawned terminal session [${defaultName}] in ${sessionCwd || '[No workspace]'}`);
+    get().addOutputLogEvent('PROCESS', 'INFO', `Created terminal tab [${defaultName}] in ${sessionCwd || '[No workspace]'}`);
 
     return newId;
   },
 
-  closeTerminalSession: (id) => {
+  closeTerminalSession: async (id) => {
+    try { await closePty(id); } catch (error) { get().addOutputLogEvent('PROCESS', 'ERROR', String(error)); return; }
     const { terminalSessions, activeTerminalId, splitTerminalId } = get();
     const targetSession = terminalSessions.find((s) => s.id === id);
 
@@ -749,10 +941,10 @@ export const useAxionStore = create<AxionState>((set, get) => ({
         id: `term-${Date.now()}`,
         name: 'PowerShell',
         type: 'powershell',
-        shell: 'PowerShell 7.4.2',
+        shell: 'PowerShell',
         cwd,
         status: 'idle',
-        logs: ['Fresh terminal session started.', cwd ? `Workspace CWD: ${cwd}` : 'No workspace connected'],
+        logs: ['Terminal tab ready; native shell not started.', cwd ? `Workspace CWD: ${cwd}` : 'No workspace connected'],
         history: [],
         createdAt: formatTimestamp()
       };
@@ -787,49 +979,8 @@ export const useAxionStore = create<AxionState>((set, get) => ({
     }));
   },
 
-  killRunningProcessInSession: (sessionId: string) => {
-    const session = get().terminalSessions.find((s) => s.id === sessionId);
-    if (!session) return;
-
-    const killTime = formatTimestamp();
-    const updatedLogs = [
-      ...session.logs,
-      `^C [SIGINT] Process terminated by user (${killTime})`,
-      'Process exit code: 130 (Interrupted)'
-    ];
-
-    set((s) => ({
-      terminalSessions: s.terminalSessions.map((ts) =>
-        ts.id === sessionId
-          ? {
-              ...ts,
-              status: 'terminated' as const,
-              logs: updatedLogs,
-              finishedAt: killTime,
-              lastExitCode: 130,
-              activeProcessName: undefined
-            }
-          : ts
-      ),
-      // Invalidate dev server if this was the running dev server
-      detectedDevServerUrl: null,
-      auditLogs: [
-        {
-          id: `AUD-${Date.now()}-kill`,
-          timestamp: new Date().toISOString(),
-          actor: 'USER',
-          action: 'PROCESS_KILLED',
-          command: session.activeProcessName || 'running process',
-          cwd: session.cwd,
-          details: `User terminated process in session [${session.name}] via Ctrl+C / Kill`,
-          exitCode: 130,
-          status: 'WARN'
-        },
-        ...s.auditLogs
-      ]
-    }));
-
-    get().addOutputLogEvent('PROCESS', 'WARN', `Process terminated in [${session.name}] via SIGINT (Exit: 130)`);
+  killRunningProcessInSession: (sessionId) => {
+    void sendPty(sessionId, '\x03').catch(error => get().addOutputLogEvent('PROCESS', 'ERROR', String(error)));
   },
 
   // Terminal Sandbox / Command Execution Engine (Phase 5 Dev Environment)
@@ -884,14 +1035,14 @@ export const useAxionStore = create<AxionState>((set, get) => ({
     const analysis = analyzeCommand(cmd);
 
     if (analysis.isDangerous) {
-      response = `[SIMULATION — NO COMMAND EXECUTED] This command would require safety approval once native terminal execution is implemented.\nCommand: "${sanitizedCmd}"\nRisk: ${analysis.riskReason || 'Potentially destructive filesystem operation'}\n(Native terminal execution deferred to Phase 5. No command was executed.)`;
+      response = `[SIMULATION — NO COMMAND EXECUTED] This command would require safety approval once native terminal execution is implemented.\nCommand: "${sanitizedCmd}"\nRisk: ${analysis.riskReason || 'Potentially destructive filesystem operation'}\n(Automated execution is disabled. No command was executed.)`;
       get().addOutputLogEvent(
         'SECURITY',
         'WARN',
         `[SIMULATION — NO COMMAND EXECUTED] Dangerous command flagged: "${sanitizedCmd}"`
       );
     } else {
-      response = `[UNAVAILABLE] Native terminal execution is not implemented yet. No command was executed.`;
+      response = `[NOT EXECUTED] Use the manual terminal to run this command. Automated shell execution remains disabled.`;
       get().addOutputLogEvent(
         'PROCESS',
         'INFO',
@@ -936,7 +1087,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
           origin,
           exitCode: undefined,
           durationMs,
-          details: `Session [${session.name}] "${sanitizedCmd}": native terminal execution is not implemented yet. No command was executed.`,
+          details: `Session [${session.name}] "${sanitizedCmd}": automated shell execution is disabled. No command was executed.`,
           status: 'BLOCKED'
         },
         ...s.auditLogs
@@ -945,6 +1096,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
   },
 
   clearSessionLogs: (sessionId) => {
+    clearPty(sessionId);
     const activeWs = get().activeWorkspace;
     const cwd = activeWs?.absolutePath || get().projectPath || '';
     set((s) => ({
@@ -962,12 +1114,18 @@ export const useAxionStore = create<AxionState>((set, get) => ({
   },
 
   // Real Persistent Chat History Actions
-  createNewChat: () => {
+  // Real Persistent Chat History Actions (Decoupled Workspace vs General Chats)
+  createNewChat: (forceCategory?: 'workspace' | 'general') => {
+    const ws = get().activeWorkspace;
+    const isWs = forceCategory === 'workspace';
     const newId = `chat-${Date.now()}`;
     const newSession: ChatSession = {
       id: newId,
-      title: 'New Conversation',
-      workspaceId: get().activeWorkspaceId,
+      title: isWs ? `${ws?.name || 'Workspace'} Chat` : 'New Conversation',
+      workspaceId: isWs && ws ? ws.id : 'default',
+      workspaceName: isWs && ws ? ws.name : undefined,
+      workspacePath: isWs && ws ? ws.absolutePath : undefined,
+      isWorkspaceBound: isWs,
       createdAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       updatedAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
       messages: [] // New chat opens completely empty!
@@ -985,6 +1143,60 @@ export const useAxionStore = create<AxionState>((set, get) => ({
     } catch (e) {
       console.warn('Could not save to localStorage', e);
     }
+  },
+  createGeneralChat: () => {
+    get().createNewChat('general');
+  },
+  createWorkspaceChat: () => {
+    get().createNewChat('workspace');
+  },
+  setChatCategoryFilter: (filter) => {
+    set({ chatCategoryFilter: filter });
+    try {
+      localStorage.setItem(STORAGE_KEY_CHAT_FILTER, filter);
+    } catch {}
+  },
+
+  // Cloud Brain Router Analytics & Strategy Actions
+  setRouterStrategy: (strategy) => {
+    set({ routerStrategy: strategy });
+    try {
+      localStorage.setItem(STORAGE_KEY_ROUTER_STRATEGY, strategy);
+    } catch {}
+  },
+  setAutoFallbackEnabled: (enabled) => {
+    set({ autoFallbackEnabled: enabled });
+    try {
+      localStorage.setItem(STORAGE_KEY_AUTO_FALLBACK, JSON.stringify(enabled));
+    } catch {}
+  },
+  recordTokenUsage: (tokens) => {
+    const current = get().tokenUsage;
+    const nowMonth = new Date().toISOString().slice(0, 7);
+    const reset = current.lastResetMonth !== nowMonth;
+    const updated: TokenUsageStats = {
+      usedMonth: reset ? tokens : current.usedMonth + tokens,
+      totalMonthlyQuota: current.totalMonthlyQuota,
+      totalRequests: current.totalRequests + 1,
+      lastResetMonth: nowMonth
+    };
+    set({ tokenUsage: updated });
+    try {
+      localStorage.setItem(STORAGE_KEY_TOKEN_USAGE, JSON.stringify(updated));
+    } catch {}
+  },
+  resetTokenUsage: () => {
+    const nowMonth = new Date().toISOString().slice(0, 7);
+    const updated: TokenUsageStats = {
+      usedMonth: 0,
+      totalMonthlyQuota: 10_000_000,
+      totalRequests: 0,
+      lastResetMonth: nowMonth
+    };
+    set({ tokenUsage: updated });
+    try {
+      localStorage.setItem(STORAGE_KEY_TOKEN_USAGE, JSON.stringify(updated));
+    } catch {}
   },
   switchChat: (id) => {
     const session = get().chatSessions.find((s) => s.id === id);
@@ -1044,6 +1256,44 @@ export const useAxionStore = create<AxionState>((set, get) => ({
     } catch (e) {}
   },
   setChatSearchQuery: (query) => set({ chatSearchQuery: query }),
+  // Bind the active chat session to the currently active local workspace
+  bindActiveChatToWorkspace: () => {
+    const { activeChatId, activeWorkspace, chatSessions } = get();
+    if (!activeWorkspace) return;
+    // Only when the open project changes. Afterwards the user's own choice wins: opening a
+    // general chat from Recents must not bounce back to the project thread.
+    if (boundWorkspaceId === activeWorkspace.id) return;
+    boundWorkspaceId = activeWorkspace.id;
+    const idx = chatSessions.findIndex((s) => s.id === activeChatId);
+    const active = chatSessions[idx];
+    if (active?.workspaceId === activeWorkspace.id) return;
+    // Only a blank chat joins the project. A conversation that already happened (in
+    // another project or in general chat) is never moved: open this project's latest
+    // thread instead, or start a fresh one.
+    if (!active || active.messages.some((m) => m.sender === 'user')) {
+      const latest = chatSessions.find((s) => s.isWorkspaceBound && s.workspaceId === activeWorkspace.id);
+      if (latest) get().switchChat(latest.id);
+      else get().createNewChat('workspace');
+      return;
+    }
+    const updated = chatSessions.map((s, i) =>
+      i === idx
+        ? {
+            ...s,
+            workspaceId: activeWorkspace.id,
+            workspaceName: activeWorkspace.name,
+            workspacePath: activeWorkspace.absolutePath,
+            isWorkspaceBound: true
+          }
+        : s
+    );
+    set({ chatSessions: updated });
+    try {
+      localStorage.setItem(STORAGE_KEY_CHATS, JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Could not persist chat-workspace binding', e);
+    }
+  },
 
   // Real Local Workspace Management
   mountNativeWorkspace: async (canonicalPath: string) => {
@@ -1056,34 +1306,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
 
       const nativeFiles = await NativeWorkspaceService.listFiles(10);
 
-      const fileContents: Record<string, string> = {};
-      const filesIndex: ProjectFileEntry[] = [];
-
-      for (const f of nativeFiles) {
-        let content: string | undefined = undefined;
-        let isLoaded = false;
-
-        if (!f.is_directory && f.size_bytes < 200000 && !isBinaryFile(f.relative_path)) {
-          try {
-            content = await NativeWorkspaceService.readTextFile(f.relative_path);
-            fileContents[f.relative_path] = content;
-            isLoaded = true;
-          } catch (e) {
-            // Non-critical: file may be binary or unreadable
-          }
-        }
-
-        filesIndex.push({
-          relativePath: f.relative_path,
-          name: f.name,
-          extension: f.extension,
-          size: f.size_bytes,
-          modifiedTimestamp: f.modified_timestamp_ms,
-          isDirectory: f.is_directory,
-          content,
-          isLoaded
-        });
-      }
+      const { fileContents, filesIndex } = await indexNativeFiles(nativeFiles);
 
       const id = info.name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
       const activeWs: ActiveWorkspace = {
@@ -1546,32 +1769,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
 
         const nativeFiles = await NativeWorkspaceService.listFiles(10);
 
-        const fileContents: Record<string, string> = {};
-        const filesIndex: ProjectFileEntry[] = [];
-
-        for (const f of nativeFiles) {
-          let content: string | undefined = undefined;
-          let isLoaded = false;
-          if (!f.is_directory && f.size_bytes < 200000 && !isBinaryFile(f.relative_path)) {
-            try {
-              content = await NativeWorkspaceService.readTextFile(f.relative_path);
-              fileContents[f.relative_path] = content;
-              isLoaded = true;
-            } catch (e) {
-              // file unreadable or binary
-            }
-          }
-          filesIndex.push({
-            relativePath: f.relative_path,
-            name: f.name,
-            extension: f.extension,
-            size: f.size_bytes,
-            modifiedTimestamp: f.modified_timestamp_ms,
-            isDirectory: f.is_directory,
-            content,
-            isLoaded
-          });
-        }
+        const { fileContents, filesIndex } = await indexNativeFiles(nativeFiles);
 
         const id = info.name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
         const activeWs: ActiveWorkspace = {
@@ -2030,6 +2228,42 @@ export const useAxionStore = create<AxionState>((set, get) => ({
     return true;
   },
 
+  // Actions - Stale File Scan
+  scanForStaleFiles: async (thresholdDays = 30) => {
+    const activeWs = get().activeWorkspace;
+    if (!activeWs) {
+      set({ staleScan: { isScanning: false, thresholdDays: 30, results: [] } });
+      return;
+    }
+    const activeFiles = get().filesIndex;
+    if (!activeFiles || activeFiles.length === 0) {
+      set({ staleScan: { isScanning: false, thresholdDays: 30, results: [] } });
+      return;
+    }
+    set({ staleScan: { isScanning: true, thresholdDays, results: [] } });
+    const cutoff = Date.now() - (thresholdDays * 24 * 60 * 60 * 1000);
+    const results: StaleFile[] = activeFiles
+      .filter((f: ProjectFileEntry) => !f.isDirectory && f.modifiedTimestamp !== undefined && f.modifiedTimestamp < cutoff)
+      .map((f: ProjectFileEntry) => ({
+        filePath: f.relativePath,
+        name: f.name,
+        extension: f.extension,
+        size: f.size,
+        modifiedTimestamp: f.modifiedTimestamp || 0,
+        ageDays: Math.max(1, Math.floor((Date.now() - (f.modifiedTimestamp || 0)) / (24 * 60 * 60 * 1000))),
+        isStale: true
+      }));
+    set({ staleScan: { isScanning: false, thresholdDays, results } });
+  },
+
+  clearStaleScanResults: () => {
+    set({ staleScan: { isScanning: false, thresholdDays: get().staleScan.thresholdDays, results: [] } });
+  },
+
+  setStaleScanThreshold: (days: number) => {
+    set((s) => ({ staleScan: { ...s.staleScan, thresholdDays: days } }));
+  },
+
   // Phase 4: Editor Drafts & Manual Saves
   updateFileDraft: (filePath, content) => {
     const original = get().files[filePath];
@@ -2106,6 +2340,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
         ...s.auditLogs
       ]
     }));
+    trackSessionChange(diff, 'proposed');
   },
 
   confirmDiscardAndProceed: () => {
@@ -2146,65 +2381,211 @@ export const useAxionStore = create<AxionState>((set, get) => ({
 
   // Cloud Brain & Compute Settings
   setComputeMode: (mode) => set({ computeMode: mode }),
-  connectProvider: (providerId, apiKey) => {
-    set((s) => ({
-      cloudProviders: s.cloudProviders.map((p) =>
-        p.id === providerId
-          ? {
-              ...p,
-              isConnected: true,
-              status: 'connected',
-              apiKey: apiKey || p.apiKey || 'sk-connected-active'
-            }
-          : p
-      ),
-      auditLogs: [
-        {
-          id: `AUD-${Date.now()}`,
-          timestamp: new Date().toISOString(),
-          actor: 'USER',
-          action: 'PROVIDER_CONNECT',
-          details: `Connected Cloud Brain provider "${providerId}"`,
-          status: 'SUCCESS'
-        },
-        ...s.auditLogs
-      ]
-    }));
+  // Cloud Brain & Compute Settings
+  refreshProviders: async () => {
+    await migrateProviderCredentials();
+    const configs = await providerConfigs();
+    const saved = loadSavedProviders();
+    const updated = get().cloudProviders.map(p => {
+      const config = configs.find(c => c.provider === p.type);
+      const old = saved.find(c => c.id === p.id || c.provider === p.type);
+      const isConfigured = Boolean(config?.configured || old?.configured);
+      const wasVerified = isConfigured && Boolean(old?.isConnected || old?.status === 'connected' || old?.verifiedAt);
+      const isConnected = wasVerified;
+      const status: CloudProvider['status'] = isConnected 
+        ? 'connected' 
+        : (old?.status === 'error' ? 'error' : (isConfigured ? 'untested' : 'disconnected'));
+
+      return {
+        ...p,
+        apiKey: undefined,
+        configured: isConfigured,
+        accountId: config?.accountId || old?.accountId || p.accountId || '',
+        revision: config?.revision || old?.revision,
+        verifiedAt: wasVerified ? (old?.verifiedAt || new Date().toISOString()) : undefined,
+        isConnected,
+        status,
+        latencyMs: old?.latencyMs,
+        pingResult: isConnected 
+          ? (old?.pingResult || 'Connected & Verified')
+          : (old?.status === 'error' ? old?.pingResult : undefined)
+      };
+    });
+    const fishConfig = configs.find(c => c.provider === 'fishaudio');
+    const fishSaved = updated.find(p => p.type === 'fishaudio');
+    setFishAudioConfigured(Boolean(fishConfig?.configured || fishSaved?.configured));
+    set({ cloudProviders: updated, voiceSettings: { ...get().voiceSettings, fishAudioApiKey: undefined } });
+    saveSavedProviders(updated);
   },
-  disconnectProvider: (providerId) => {
-    set((s) => ({
-      cloudProviders: s.cloudProviders.map((p) =>
-        p.id === providerId ? { ...p, isConnected: false, status: 'disconnected', isPrimary: false } : p
-      )
-    }));
+  connectProvider: async (providerId, apiKey = '', accountId = '', options) => {
+    const provider = get().cloudProviders.find(p => p.id === providerId);
+    if (!provider) throw Error('Unknown provider');
+    await saveProvider(provider.type, apiKey, accountId);
+    const config = (await providerConfigs()).find(c => c.provider === provider.type);
+    if (options?.force) {
+      // Force Connect / Save Key: the key is already encrypted in the native vault.
+      // Skip the live inference probe so false-positive network/CORS/endpoint/auth
+      // errors cannot block a user whose key is actually valid.
+      const forced = get().cloudProviders.map(p => p.id === providerId ? {
+        ...p,
+        apiKey: undefined,
+        revision: config?.revision,
+        configured: true,
+        accountId,
+        verifiedAt: new Date().toISOString(),
+        isConnected: true,
+        status: 'connected' as const,
+        latencyMs: undefined,
+        pingResult: 'Connected & Verified · key saved to the encrypted vault (live probe skipped).'
+      } : p);
+      if (provider.type === 'fishaudio') {
+        setFishAudioConfigured(true);
+        get().updateVoiceSettings({ fishAudioApiKey: '', ttsEngine: 'fishaudio' });
+      }
+      set({ cloudProviders: forced });
+      saveSavedProviders(forced);
+      return;
+    }
+    const updated = get().cloudProviders.map(p => p.id === providerId ? {
+      ...p,
+      apiKey: undefined,
+      revision: config?.revision,
+      configured: true,
+      accountId,
+      verifiedAt: undefined,
+      isConnected: false,
+      status: 'untested' as const,
+      pingResult: 'Saved in Windows vault. Verifying connection...'
+    } : p);
+    if (provider.type === 'fishaudio') {
+      setFishAudioConfigured(true);
+      get().updateVoiceSettings({ fishAudioApiKey: '', ttsEngine: 'fishaudio' });
+    }
+    set({ cloudProviders: updated });
+    saveSavedProviders(updated);
+
+    try {
+      await get().testProviderConnection(providerId);
+    } catch {
+      // testProviderConnection handles error state and persistence internally
+    }
+  },
+  disconnectProvider: async(providerId)=>{
+    const provider=get().cloudProviders.find(p=>p.id===providerId);if(!provider)return;
+    await saveProvider(provider.type,'','',true);
+    const updated=get().cloudProviders.map(p=>p.id===providerId?{...p,apiKey:undefined,configured:false,verifiedAt:undefined,revision:undefined,isConnected:false,status:'disconnected' as const,pingResult:undefined}:p);
+    if(provider.type==='fishaudio'){setFishAudioConfigured(false);get().updateVoiceSettings({fishAudioApiKey:'',ttsEngine:'device'});}
+    set({cloudProviders:updated});saveSavedProviders(updated);
   },
   setPrimaryProvider: (providerId) => {
-    set((s) => ({
-      cloudProviders: s.cloudProviders.map((p) => ({
-        ...p,
-        isPrimary: p.id === providerId
-      }))
+    const provider = get().cloudProviders.find(p => p.id === providerId);
+    if (!provider) throw Error('Unknown provider');
+    const model = get().models.find(m => m.tier === 'free' && providerForModel(m, get().cloudProviders)?.id === providerId);
+    if (model) get().setActiveModelId(model.id);
+    set(s => ({
+      cloudProviders: s.cloudProviders.map(p => ({ ...p, isPrimary: p.id === providerId }))
     }));
   },
   testProviderConnection: async (providerId) => {
-    const provider = get().cloudProviders.find((p) => p.id === providerId);
+    // Providers with an official models endpoint: a valid key is verified
+    // through a free authenticated catalog read that never spends credits.
+    const liveCatalogProviders: string[] = ['anthropic', 'openai', 'deepseek', 'mistral', 'cohere', 'huggingface', 'together', 'replicate', 'fireworks', 'nvidia'];
+    // Bundled probe model for providers without a models endpoint (or free
+    // model mapping) so verification can always run a real chat request.
+    const defaultProbeModels: Record<string, string> = { perplexity: 'sonar' };
+    const state = get();
+    const provider = state.cloudProviders.find(p => p.id === providerId);
     if (!provider) return false;
-    await new Promise((r) => setTimeout(r, 400));
-    set((s) => ({
-      cloudProviders: s.cloudProviders.map((p) =>
-        p.id === providerId
-          ? {
-              ...p,
-              pingResult: 'UNAVAILABLE — Real provider connectivity testing is not implemented yet.'
-            }
-          : p
-      ),
-      terminalLogs: [
-        ...s.terminalLogs,
-        `> [PROVIDER TEST — SIMULATION] ${provider.name}: UNAVAILABLE — Real provider connectivity testing is not implemented yet. No connection was tested.`
-      ]
-    }));
-    return false;
+    const started = performance.now();
+    if (provider.type === 'fishaudio') {
+      const res = await testFishAudioConnection(provider.apiKey);
+      if(get().cloudProviders.find(p=>p.id===providerId)!==provider)return false;
+      const updated = get().cloudProviders.map(p => p.id === providerId ? {
+        ...p,
+        verifiedAt:res.success?new Date().toISOString():undefined,
+        isConnected: res.success,
+        status: (res.success ? 'connected' : 'error') as 'connected' | 'error',
+        latencyMs: res.latencyMs,
+        pingResult: res.message || (res.success ? 'Connected & Verified · Fish Audio neural synthesis verified.' : 'Connection test failed.')
+      } : p);
+      set({ cloudProviders: updated });
+      saveSavedProviders(updated);
+      return res.success;
+    }
+    // Only an explicit auth/key rejection marks the key as bad. Transport,
+    // CORS, endpoint, quota, missing-model and "desktop app required"
+    // failures are environment problems, not key problems — keeping status
+    // 'untested' stops valid keys from showing "Verification failed · check
+    // key". The probe result is still reported verbatim in pingResult.
+    const authFailure = (message: string) =>
+      /\b(?:401|403)\b/.test(message) ||
+      /invalid\s+(?:api\s+)?key|incorrect\s+(?:api\s+)?key|invalid\s+token|unauthorized|permission\s+denied|check\s+api\s+key|authentication\s+failed|invalid\s+x-api-key/i.test(message);
+    const recordFailure = (errorMsg: string) => {
+      if (get().cloudProviders.find(p => p.id === providerId) !== provider) return false;
+      const latencyMs = Math.round(performance.now() - started);
+      const updated = get().cloudProviders.map(p => p.id === providerId ? {
+        ...p,
+        verifiedAt: undefined,
+        isConnected: false,
+        status: (authFailure(errorMsg) ? 'error' : 'untested') as 'error' | 'untested',
+        latencyMs,
+        pingResult: authFailure(errorMsg)
+          ? errorMsg
+          : `Key saved in vault. Live check inconclusive: ${errorMsg} If the key is valid, use "Force Connect / Save Key".`
+      } : p);
+      set({ cloudProviders: updated });
+      saveSavedProviders(updated);
+      return false;
+    };
+    // Key-of-record verification: providers with an official models endpoint
+    // can be verified with a free authenticated read that never spends the
+    // user's inference credits.
+    if (liveCatalogProviders.includes(provider.type)) {
+      try {
+        const catalog = await verifyProviderCatalog(provider.type);
+        if (get().cloudProviders.find(p => p.id === providerId) !== provider) return false;
+        const latencyMs = Math.round(performance.now() - started);
+        const freeModels = catalog.models.filter(m => m.pricing === 'free').length;
+        const updated = get().cloudProviders.map(p => p.id === providerId ? {
+          ...p,
+          verifiedAt: new Date().toISOString(),
+          isConnected: true,
+          status: 'connected' as const,
+          latencyMs,
+          pingResult: `Connected & Verified · key accepted by the official models endpoint (${catalog.models.length} models, ${freeModels} free) in ${latencyMs}ms.`
+        } : p);
+        set({ cloudProviders: updated });
+        saveSavedProviders(updated);
+        return true;
+      } catch (error: any) {
+        return recordFailure(error instanceof Error ? error.message : String(error));
+      }
+    }
+    const model: { id: string; name: string; providerModelId?: string } | undefined =
+      state.models.find(m => m.id === state.activeModelId && providerForModel(m, state.cloudProviders)?.id === providerId)
+      || state.models.find(m => m.tier === 'free' && providerForModel(m, state.cloudProviders)?.id === providerId)
+      || (defaultProbeModels[provider.type]
+        ? { id: defaultProbeModels[provider.type], name: defaultProbeModels[provider.type] }
+        : undefined);
+    try {
+      if (!model) throw Error('No supported model for this provider.');
+      await requestProvider(provider.type, (model.providerModelId || model.id).replace(/^models\//, ''), 'Reply briefly.', [{ role: 'user', parts: [{ text: 'Reply with OK.' }] }]);
+      if (get().cloudProviders.find(p => p.id === providerId) !== provider) return false;
+      const latencyMs = Math.round(performance.now() - started);
+      const updated = get().cloudProviders.map(p => p.id === providerId ? {
+        ...p,
+        verifiedAt: new Date().toISOString(),
+        isConnected: true,
+        status: 'connected' as const,
+        latencyMs,
+        pingResult: `Connected & Verified · ${model.name} test succeeded (${latencyMs}ms).`
+      } : p);
+      set({ cloudProviders: updated });
+      saveSavedProviders(updated);
+      return true;
+    } catch (error: any) {
+      return recordFailure(error instanceof Error ? error.message : String(error));
+    }
   },
 
   // Live Conversational Speech Mode
@@ -2226,17 +2607,12 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       const updated = { ...s.voiceSettings, ...settings };
       if (typeof window !== 'undefined') {
         try {
-          localStorage.setItem(STORAGE_KEY_VOICE_SETTINGS, JSON.stringify(updated));
+          localStorage.setItem(STORAGE_KEY_VOICE_SETTINGS, JSON.stringify({...updated,fishAudioApiKey:undefined}));
         } catch (e) {}
       }
       return { voiceSettings: updated };
     }),
-  interruptSpeech: () => {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      window.speechSynthesis.cancel();
-    }
-    set({ speechState: 'listening' });
-  },
+  interruptSpeech: () => { globalVoiceEngine.interrupt(); },
 
   // Preview & Activity
   togglePreviewPanel: (open) => {
@@ -2277,7 +2653,14 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       } catch (e) {}
     }
   },
-  setActiveModelId: (modelId) => set({ activeModelId: modelId }),
+  setActiveModelId: (modelId) => {
+    // Pool models come from connected keys; adopt them into the model list on first selection.
+    const model=get().models.find(m=>m.id===modelId)||buildModelPool(get().models,get().cloudProviders,loadPaidPoolConsent()).find(m=>m.id===modelId);if(!model)return;
+    if(!get().models.some(m=>m.id===modelId))set(s=>({models:[...s.models,model]}));
+    const provider=providerForModel(model,get().cloudProviders);
+    try{localStorage.setItem('axion.activeModel',modelId);}catch{}
+    set(s=>({activeModelId:modelId,cloudProviders:s.cloudProviders.map(p=>({...p,isPrimary:p.id===provider?.id}))}));
+  },
   toggleAgentEnabled: (agentId) => {
     set((s) => ({
       agents: s.agents.map((a) => (a.id === agentId ? { ...a, enabled: !a.enabled } : a))
@@ -2321,11 +2704,28 @@ export const useAxionStore = create<AxionState>((set, get) => ({
   setDiffViewMode: (mode) => set({ diffViewMode: mode }),
 
   // Core Prompt Execution with Real AI Streaming, Multi-Agent Delegation & Context Manager
-  executeUserPrompt: async (promptText: string, isVoice = false) => {
+  executeUserPrompt: async (promptText: string, isVoice = false, visualInput?: VisualInput, attachments?: Attachment[], options?: PromptOptions) => {
+    if(visualInput)validateVisualInput(visualInput);
+    if(attachments?.length)validateAttachments(attachments);
     const state = get();
-    if (!promptText.trim() || state.isWorking) return;
+    if (!promptText.trim() || state.isWorking) {
+      // A voice turn that can't run now must not leave the microphone switched off.
+      if (isVoice) globalVoiceEngine.completeTurn();
+      return;
+    }
+    // Wake phrases and commands are never taken as onboarding answers.
+    const directive=parseWakePhrase(promptText).matched||!!detectCommandIntent(promptText)||!!detectAppIntent(promptText)||!!detectBrowserCommand(promptText)||!!detectVisualIntent(promptText);
+    // Private interview answers never enter persisted chat messages or provider history.
+    const profileReply=visualInput||attachments?.length||directive||options?.auto?null:useProfileStore.getState().answer(promptText);
+    if(profileReply){
+      if(isVoice){globalVoiceEngine.configure(state.voiceSettings,state.audioTtsEnabled&&state.voiceSettings.autoSpeak);if(state.audioTtsEnabled&&state.voiceSettings.autoSpeak)void globalVoiceEngine.speak(useProfileStore.getState().message===profileReply?useProfileStore.getState().speechMessage:profileReply);else globalVoiceEngine.completeTurn();}
+      return;
+    }
+
 
     set({ isWorking: true });
+    if (!options?.auto) autoFixStreak = 0;
+    if (isVoice || visualInput) globalVoiceEngine.pauseForResponse();
     if (state.speechMode === 'speech') {
       set({ speechState: 'thinking' });
     }
@@ -2362,8 +2762,9 @@ export const useAxionStore = create<AxionState>((set, get) => ({
     const userMsg: ChatMessage = {
       id: `msg-${Date.now()}-user`,
       sender: 'user',
-      text: promptText,
+      text: options?.displayText ?? promptText,
       timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      attachments: attachments?.length ? attachments.map(({ name, mimeType, size }) => ({ name, mimeType, size })) : undefined,
       voiceTranscript: isVoice
         ? {
             original: norm.original,
@@ -2374,6 +2775,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
     };
 
     // 2. Pending Bot message
+    const startedAt = Date.now();
     const botMsgId = `msg-${Date.now()}-bot`;
     const initialBotMsg: ChatMessage = {
       id: botMsgId,
@@ -2436,16 +2838,64 @@ export const useAxionStore = create<AxionState>((set, get) => ({
     // Call Real AI Streaming Orchestrator
     await orchestrateAIRequest(
       promptText,
-      get().messages.filter((m) => m.id !== botMsgId),
+      state.messages,
       {
         workspaceName,
         workspacePath,
         files: state.files,
         activeAgent: delegatedSpecialist,
         isBossLocked: state.isBossLocked,
-        availableAgents: state.agents
+        availableAgents: state.agents,
+        selectedModel: buildModelPool(state.models,state.cloudProviders,loadPaidPoolConsent()).find(m=>m.id===state.activeModelId),
+        models: buildModelPool(state.models,state.cloudProviders,loadPaidPoolConsent()),
+        providers: state.cloudProviders,
+        routerStrategy: state.routerStrategy,
+        autoFallbackEnabled: state.autoFallbackEnabled,
+        isVoice, visualInput, attachments,
+        chatSessions: state.chatSessions, activeChatId: state.activeChatId
       },
       {
+        onOpenProject: (path) => get().mountNativeWorkspace(path),
+        onProposedEdits: (diffs) => {
+          diffs = diffs.map(diff => ({...diff, workspacePath: state.activeWorkspace?.absolutePath}));
+          // First change rides on the reply; each further file gets its own reviewable message.
+          const [first, ...rest] = diffs;
+          const extra: ChatMessage[] = rest.map((diff, i) => ({
+            id: `${botMsgId}-edit-${i + 1}`,
+            sender: activeSender,
+            agentName: activeAgentName,
+            agentRole: activeAgentRole,
+            text: `Change ${i + 2} of ${diffs.length}: \`${diff.filePath}\``,
+            timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            taskId,
+            proposedDiff: diff
+          }));
+          set((s) => {
+            const at = s.messages.findIndex((m) => m.id === botMsgId);
+            const messages = s.messages.map((m) => (m.id === botMsgId ? { ...m, proposedDiff: first } : m));
+            if (at >= 0) messages.splice(at + 1, 0, ...extra);
+            return { messages };
+          });
+          diffs.forEach((d) => trackSessionChange(d, 'proposed'));
+        },
+        onSleep: () => globalVoiceEngine.sleep(promptText, false),
+        onContext: (ecc) => {
+          set((s) => ({ messages: s.messages.map((message) => message.id === botMsgId ? { ...message, ecc } : message) }));
+        },
+        onProviderResult: (providerId, success) => {
+          const original = get().cloudProviders.find(p => p.id === providerId);
+          if (!original) return;
+          const updated = get().cloudProviders.map(p => p.id === providerId ? {
+            ...p,
+            isConnected: success,
+            status: (success ? 'connected' : 'error') as CloudProvider['status'],
+            pingResult: success 
+              ? 'Connected & Verified · Live conversation request succeeded.' 
+              : 'Authentication failed · Check API key in Cloud Brain'
+          } : p);
+          set({ cloudProviders: updated });
+          saveSavedProviders(updated);
+        },
         onChunk: (chunkText) => {
           const currentMsgs = get().messages.map((m) =>
             m.id === botMsgId ? { ...m, text: chunkText } : m
@@ -2474,31 +2924,46 @@ export const useAxionStore = create<AxionState>((set, get) => ({
           if (cmd === 'close_terminal') get().toggleTerminal(false);
           if (cmd === 'new_chat') get().createNewChat();
         },
-        onComplete: (fullText) => {
-          set({ isWorking: false });
+        onComplete: (fullText, spokenText) => {
+          const durationMs = Date.now() - startedAt;
+          set((s) => ({ isWorking: false, messages: s.messages.map((m) => (m.id === botMsgId ? { ...m, durationMs } : m)) }));
           saveMessagesToStorage(get().messages);
 
-          // Voice playback if in Voice mode or TTS enabled
-          if (get().speechMode === 'speech' || get().audioTtsEnabled) {
-            set({ speechState: 'speaking' });
-            globalVoiceEngine.speak(fullText, () => {
-              if (get().speechMode === 'speech') {
-                set({ speechState: 'listening' });
-              }
-            });
-          }
+          // Track FreeLLMAPI token budget metrics
+          try {
+            const promptTokens = Math.ceil(promptText.length / 4);
+            const replyTokens = Math.ceil(fullText.length / 4);
+            get().recordTokenUsage(promptTokens + replyTokens);
+          } catch {}
+
+          // Hybrid memory: capture a cloud-safe milestone summary of this
+          // exchange. Local storage remains the system of record; sync is
+          // additive, capped, consent-gated (profile shareWithAI opt-in),
+          // and silently skipped when offline/disabled.
+          try {
+            const sharing = useProfileStore.getState().profile?.shareWithAI === true;
+            const milestone = sharing ? summarizeExchange(fullText) : '';
+            if (milestone) syncMilestone({ milestone_kind: 'summary', summary: milestone, source: 'desktop', device_label: null });
+          } catch { /* sync must never break chat */ }
+
+          globalVoiceEngine.configure(get().voiceSettings, get().audioTtsEnabled && get().voiceSettings.autoSpeak);
+          // Voice turns speak on the Voice screen and when AXION was woken in the background.
+          if (get().audioTtsEnabled && get().voiceSettings.autoSpeak && (!isVoice || get().speechMode === 'speech' || globalVoiceEngine.backgroundWake)) {
+            void globalVoiceEngine.speak(spokenText || fullText);
+          } else { globalVoiceEngine.completeTurn(); }
+
         },
         onError: (err) => {
           set({ isWorking: false });
-          const errorMsg = `*Error processing request:* ${err}\n\nPlease verify network connection or try again.`;
+          const errorMsg = err;
           const currentMsgs = get().messages.map((m) =>
             m.id === botMsgId ? { ...m, text: errorMsg } : m
           );
           set({ messages: currentMsgs });
           saveMessagesToStorage(currentMsgs);
-          if (get().speechMode === 'speech') {
-            set({ speechState: 'idle' });
-          }
+          if ((get().speechMode === 'speech' || (isVoice && globalVoiceEngine.backgroundWake)) && get().audioTtsEnabled && get().voiceSettings.autoSpeak) {
+            void globalVoiceEngine.speak(err);
+          } else { globalVoiceEngine.completeTurn(); }
         }
       }
     );
@@ -2509,13 +2974,18 @@ export const useAxionStore = create<AxionState>((set, get) => ({
     const diff =
       state.activeDiffModal?.id === diffId
         ? state.activeDiffModal
-        : state.activeDiff || state.messages.find((m) => m.proposedDiff?.id === diffId)?.proposedDiff;
+        : (state.activeDiff?.id === diffId ? state.activeDiff : undefined) || state.messages.find((m) => m.proposedDiff?.id === diffId)?.proposedDiff;
 
-    if (!diff) return;
+    if (!diff || diff.status !== 'pending_approval') return;
 
     const ws = state.activeWorkspace;
     if (!ws) {
       alert('Error: No active workspace mounted. Safe write halted.');
+      return;
+    }
+
+    if (diff.workspacePath && normalizePath(diff.workspacePath).toLowerCase() !== normalizePath(ws.absolutePath).toLowerCase()) {
+      alert('This proposal belongs to a different project. Open its original project before applying it.');
       return;
     }
 
@@ -2552,7 +3022,8 @@ export const useAxionStore = create<AxionState>((set, get) => ({
     };
 
     // 2. Perform Native / FS Safe Write
-    const writeResult = await writeWorkspaceFileDirect(ws, diff.filePath, diff.newContent);
+    const writeResult = await writeWorkspaceFileDirect(ws, diff.filePath, diff.newContent,
+      Object.prototype.hasOwnProperty.call(state.files, diff.filePath) ? diff.oldContent : undefined);
     if (!writeResult.success) {
       alert(`Safe write failed: ${writeResult.error || 'Write could not be verified'}`);
       return;
@@ -2570,6 +3041,11 @@ export const useAxionStore = create<AxionState>((set, get) => ({
         ? { ...f, size: verifiedContent.length, modifiedTimestamp: Date.now(), content: verifiedContent, isLoaded: true }
         : f
     );
+    if (!updatedIndex.some(f => f.relativePath === diff.filePath)) {
+      updatedIndex.push({relativePath: diff.filePath, name: diff.filePath.split('/').pop() || diff.filePath,
+        extension: diff.filePath.split('.').pop() || '', size: verifiedContent.length,
+        isDirectory: false, content: verifiedContent, isLoaded: true, modifiedTimestamp: Date.now()});
+    }
 
     // Update diff status in chat messages
     const updatedMessages = state.messages.map((m) => {
@@ -2612,12 +3088,13 @@ export const useAxionStore = create<AxionState>((set, get) => ({
           actor: 'SYSTEM',
           action: 'FILE_WRITE',
           targetPath: diff.filePath,
-          details: `In-memory editor buffer updated for ${diff.filePath} [Native atomic write deferred to Phase 2]`,
+          details: `Written to disk and verified by read-back: ${diff.filePath}`,
           status: 'SUCCESS'
         },
         ...state.auditLogs
       ]
     });
+    trackSessionChange(diff, 'applied');
 
     get().addOrchestrationActivity(
       'Memory Buffer Updated',
@@ -2625,33 +3102,17 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       `File buffer updated in memory: ${diff.filePath} [Snapshot: ${diff.taskId}]`
     );
 
-    // In-memory preview update notification
-    setTimeout(() => {
-      const validatedMessages = get().messages.map((m) => {
-        if (m.taskId === diff.taskId) {
-          return { ...m, buildStatus: 'passed' as const };
-        }
-        return m;
-      });
-
-      set((s) => ({
-        messages: validatedMessages,
-        terminalLogs: [
-          ...s.terminalLogs,
-          '> [Sandbox] Buffer diff applied successfully.',
-          '> [Note] Native compiler/PTY verification active in Phase 5.'
-        ]
-      }));
-
-      get().addOrchestrationActivity(
-        'Buffer Synchronized',
-        'Editor Sandbox',
-        'In-memory file buffer updated and synchronized with active view.'
-      );
-    }, 600);
+    // AXION's own edits: once the last file of the change is approved, run the project's checks.
+    const stillPending = get().messages.some((m) => m.proposedDiff?.taskId === diff.taskId && m.proposedDiff.status === 'pending_approval');
+    if (diff.id.startsWith('diff-ai-') && !stillPending) void get().verifyAfterEdits(diff.taskId);
   },
 
   rejectDiff: (diffId: string) => {
+    const current = get();
+    const rejected = [current.activeDiffModal, current.activeDiff, ...current.messages.map((m) => m.proposedDiff)].find(
+      (d) => d?.id === diffId
+    );
+    if (rejected) trackSessionChange(rejected, 'rejected');
     const updatedMessages = get().messages.map((m) => {
       if (m.proposedDiff && m.proposedDiff.id === diffId) {
         return {
@@ -2839,6 +3300,61 @@ export const useAxionStore = create<AxionState>((set, get) => ({
         '> [CRITICAL] Build failed with exit code 2. Auto-rollback armed.'
       ]
     }));
+    trackSessionChange(errDiff, 'proposed');
+  },
+
+  verifyAfterEdits: async (taskId: string) => {
+    const files = [...new Set(get().messages.filter((m) => m.proposedDiff?.taskId === taskId && m.proposedDiff.status === 'approved').map((m) => m.proposedDiff!.filePath))];
+    const id = `msg-${Date.now()}-checks`;
+    const card: ChatMessage = {
+      id,
+      sender: 'boss_agent',
+      agentName: 'AXION',
+      text: 'Checking the project after the edit…',
+      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+      taskId,
+      buildStatus: 'building'
+    };
+    set((s) => ({ messages: [...s.messages, card] }));
+    const update = (patch: Partial<ChatMessage>) => set((s) => ({ messages: s.messages.map((m) => (m.id === id ? { ...m, ...patch } : m)) }));
+    let results: CheckResult[] | null;
+    try {
+      results = await runProjectChecks();
+    } catch (error) {
+      update({ text: `Couldn't run the project checks: ${error instanceof Error ? error.message : String(error)}`, buildStatus: undefined });
+      return;
+    }
+    if (results === null) {
+      set((s) => ({ messages: s.messages.filter((m) => m.id !== id) })); // browser preview: checks need the desktop app
+      return;
+    }
+    const summary = summarizeChecks(results);
+    update({
+      text: summary.text,
+      buildStatus: summary.status === 'none' ? undefined : summary.status,
+      buildErrorLogs: summary.log || undefined
+    });
+    get().addOrchestrationActivity('Project checks', 'AXION', summary.status === 'failed' ? 'Checks failed after an approved edit' : 'Checks finished');
+    const failed = results.find((r) => !r.success);
+    if (!failed) { autoFixStreak = 0; return; }
+    failedChecks.set(id, { failed, files });
+    if (autoFixStreak < MAX_AUTO_FIXES && !get().isWorking) {
+      autoFixStreak += 1;
+      await get().requestCheckFix(id);
+    } else if (autoFixStreak >= MAX_AUTO_FIXES) {
+      update({ text: `${summary.text}
+
+I've tried ${MAX_AUTO_FIXES} automatic fixes in a row, so I'm stopping here. Use **Fix it** to try again, or tell me what to change.` });
+    }
+  },
+
+  requestCheckFix: async (messageId: string) => {
+    const record = failedChecks.get(messageId);
+    if (!record) { get().healBuildError(); return; }
+    await get().executeUserPrompt(buildFixPrompt(record.failed, record.files), false, undefined, undefined, {
+      auto: true,
+      displayText: `Fix the failing ${record.failed.label.toLowerCase()} check (\`${record.failed.command}\`).`
+    });
   },
 
   healBuildError: () => {

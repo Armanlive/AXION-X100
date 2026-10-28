@@ -1,13 +1,14 @@
-import { AIModel } from '../types';
+import type { AIModel } from '../types/index.ts';
 
 export const INITIAL_MODELS: AIModel[] = [
+  {id:'openrouter-free',name:'OpenRouter Free Router',provider:'OpenRouter',providerModelId:'openrouter/free',tier:'free',costPer1kTokens:'Free router · rate limits apply',contextWindow:'Model dependent',status:'untested',capabilities:['coding','reasoning'],availability:'requires_key'},
   // 1. Google Gemini (Free Tier Catalog)
   {
-    id: 'gemini-2.0-flash',
-    name: 'Gemini 2.0 Flash',
-    displayName: 'Gemini 2.0 Flash (Free Tier Catalog)',
+    id: 'gemini-2.5-flash',
+    name: 'Gemini 2.5 Flash',
+    displayName: 'Gemini 2.5 Flash (Free Tier Catalog)',
     provider: 'Google Gemini',
-    providerModelId: 'models/gemini-2.0-flash',
+    providerModelId: 'gemini-2.5-flash',
     tier: 'free',
     costPer1kTokens: '$0.00 (Catalog Free Tier)',
     inputCost: '$0.00 / 1M',
@@ -211,15 +212,15 @@ export const INITIAL_MODELS: AIModel[] = [
 
   // 6. Paid Models (Safety Gate: Auto-Blocked, Requires Explicit Authorization)
   {
-    id: 'claude-3-5-sonnet',
-    name: 'Claude 3.5 Sonnet',
-    displayName: 'Anthropic Claude 3.5 Sonnet (Paid)',
+    id: 'claude-opus-5-5',
+    name: 'Claude Opus 5.5',
+    displayName: 'Anthropic Claude Opus 5.5 (Paid)',
     provider: 'Anthropic',
     tier: 'paid_blocked',
-    costPer1kTokens: '$0.003 in / $0.015 out',
-    inputCost: '$3.00 / 1M',
-    outputCost: '$15.00 / 1M',
-    contextWindow: '200,000 tokens',
+    costPer1kTokens: '$0.004 in / $0.020 out',
+    inputCost: '$4.00 / 1M',
+    outputCost: '$20.00 / 1M',
+    contextWindow: '1,000,000 tokens',
     status: 'untested',
     capabilities: ['coding', 'reasoning', 'vision', 'tool_use'],
     codingScore: 98,

@@ -1,3 +1,6 @@
+import type { SessionFileChange } from '../utils/sessionChanges';
+export type { SessionFileChange, SessionChangeStatus } from '../utils/sessionChanges';
+import type {ECCTelemetry} from '../core/context/eccManager';
 export type AgentCategory =
   | 'COMMAND'
   | 'CODING'
@@ -54,6 +57,9 @@ export interface AIModel {
 }
 
 export interface ChatMessage {
+  ecc?: ECCTelemetry;
+  /** How long the reply took, from send to completion. */
+  durationMs?: number;
   id: string;
   sender: 'user' | 'boss_agent' | 'specialist_agent' | 'system';
   agentName?: string;
@@ -61,6 +67,8 @@ export interface ChatMessage {
   text: string;
   timestamp: string;
   taskId?: string;
+  /** Names of files attached to this message; contents are never stored in chat history. */
+  attachments?: { name: string; mimeType: string; size: number }[];
   voiceTranscript?: {
     original: string;
     normalizedEnglish: string;
@@ -80,12 +88,26 @@ export interface ChatSession {
   id: string;
   title: string;
   workspaceId: string;
+  workspaceName?: string;
+  workspacePath?: string;
+  isWorkspaceBound?: boolean;
   createdAt: string;
   updatedAt: string;
   messages: ChatMessage[];
+  /** Files AXION changed or proposed changes to in this session (metadata only). */
+  changes?: SessionFileChange[];
+}
+
+export interface TokenUsageStats {
+  usedMonth: number;
+  totalMonthlyQuota: number;
+  totalRequests: number;
+  lastResetMonth: string;
 }
 
 export interface DiffHunk {
+  /** Project this proposal was generated against; never apply it to another root. */
+  workspacePath?: string;
   id: string;
   taskId: string;
   filePath: string;
@@ -109,6 +131,16 @@ export interface TaskSnapshot {
   origin?: 'manual' | 'boss-agent' | 'specialist-agent';
   workspaceId?: string;
   workspacePath?: string;
+}
+
+export interface StaleFile {
+  filePath: string;
+  name: string;
+  extension: string;
+  size: number;
+  modifiedTimestamp: number;
+  ageDays: number;
+  isStale: boolean;
 }
 
 export interface AuditLog {
@@ -288,11 +320,15 @@ export interface PreviewRuntime {
 export type ComputeMode = 'LOCAL' | 'CLOUD' | 'HYBRID';
 
 export interface CloudProvider {
+  revision?: string;
+  verifiedAt?: string;
+  configured?: boolean;
+  accountId?: string;
   id: string;
   name: string;
   description: string;
   icon: string;
-  type: 'gemini' | 'openrouter' | 'groq' | 'cloudflare' | 'nvidia' | 'ollama' | 'custom';
+  type: 'gemini' | 'openrouter' | 'groq' | 'cloudflare' | 'nvidia' | 'ollama' | 'fishaudio' | 'anthropic' | 'openai' | 'deepseek' | 'mistral' | 'cohere' | 'huggingface' | 'together' | 'perplexity' | 'replicate' | 'fireworks' | 'custom';
   apiKey?: string;
   isConnected: boolean;
   isPrimary: boolean;
@@ -319,11 +355,21 @@ export type SpeechState =
   | 'error';
 
 export interface VoiceSettings {
+  groqTranscription?: boolean;
   language: 'auto' | 'en' | 'hi' | 'hinglish';
   voiceName: string;
   speed: number;
   autoSpeak: boolean;
-  listeningMode: 'push-to-talk' | 'continuous';
+  listeningMode: 'push-to-talk' | 'continuous' | 'wake-word';
+  doubleClap?: boolean;
+  /** Listen for "AXION" in chat mode too, not only on the Voice screen. */
+  backgroundWake?: boolean;
+  ttsEngine?: 'fishaudio' | 'device' | 'gemini';
+  geminiTtsModel?: string;
+  geminiTtsVoice?: string;
+  fishAudioApiKey?: string;
+  fishAudioModel?: string;
+  fishAudioReferenceId?: string;
 }
 
 // Orchestration Activity

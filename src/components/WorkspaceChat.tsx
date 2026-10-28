@@ -1,9 +1,13 @@
+import {ResponseActions} from './ResponseActions';
+import { VoiceEngine } from '../utils/voiceEngine';
 import React, { useState, useRef, useEffect } from 'react';
 import { useAxionStore } from '../store/useAxionStore';
 import { DiffViewer } from './DiffViewer';
 import { VoiceAudioWaveform } from './VoiceAudioWaveform';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { AxionLivingCore } from './voice/AxionLivingCore';
+import { CentralPanelHeader } from './CentralPanelHeader';
+import { AxionHologramRing } from './AxionHologramRing';
 import {
   ArrowUp,
   Mic,
@@ -30,10 +34,15 @@ import {
   ShieldCheck,
   Code,
   Layers,
-  Lock
+  Lock,
+  Paperclip
 } from 'lucide-react';
+import {AttachButton, AttachmentChips, useAttachments} from './chat/AttachmentTray';
+import {NewSessionCard, useNewSessionPrompt} from './chat/NewSessionPrompt';
+import {ChatCoreRail} from './chat/ChatCoreRail';
 
 export const WorkspaceChat: React.FC = () => {
+  const [voiceInputError,setVoiceInputError]=useState('');
   const {
     messages,
     executeUserPrompt,
@@ -42,7 +51,7 @@ export const WorkspaceChat: React.FC = () => {
     setSpeechState,
     setSpeechMode,
     triggerBuildErrorDemo,
-    healBuildError,
+    requestCheckFix,
     setCurrentTab,
     selectedAgentId,
     setSelectedAgentId,
@@ -60,10 +69,15 @@ export const WorkspaceChat: React.FC = () => {
     rejectDiff,
     activeWorkspace,
     workspaces,
-    activeWorkspaceId
+    activeWorkspaceId,
+    bindActiveChatToWorkspace
   } = useAxionStore();
 
   const [inputVal, setInputVal] = useState('');
+  /** Words being dictated right now, before the recognizer settles on them. */
+  const [dictationPreview, setDictationPreview] = useState('');
+  const files = useAttachments();
+  const newSession = useNewSessionPrompt();
   const [isRecording, setIsRecording] = useState(false);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [expandedDiffMsgIds, setExpandedDiffMsgIds] = useState<Record<string, boolean>>({});
@@ -87,6 +101,12 @@ export const WorkspaceChat: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isWorking]);
 
+  // Persistent project-to-chat binding: opening the Chat view (or switching the active
+  // workspace while it is open) always binds the current session to that workspace.
+  useEffect(() => {
+    bindActiveChatToWorkspace();
+  }, [activeWorkspaceId, bindActiveChatToWorkspace]);
+
   // Close menus on outside click
   useEffect(() => {
     const handleOutside = (e: MouseEvent) => {
@@ -105,12 +125,34 @@ export const WorkspaceChat: React.FC = () => {
   }, []);
 
   const handleSend = () => {
-    if (!inputVal.trim() || isWorking) return;
-    executeUserPrompt(inputVal, false);
+    if ((!inputVal.trim() && !files.attachments.length) || isWorking || files.busy || newSession.pending) return;
+    // Sending ends dictation, so later speech doesn't land in the next message.
+    if (isRecording) { chatVoice.current?.stopListening(); setIsRecording(false); setSpeechState('idle'); setDictationPreview(''); }
+    const prompt = inputVal.trim() || (files.attachments.length === 1 ? `Take a look at ${files.attachments[0].name}.` : 'Take a look at these files.');
+    const attachments = files.attachments.length ? files.attachments : undefined;
+    // An unrelated task in a project thread is held until the user picks New session / Keep here.
+    if (!newSession.offer({ prompt, attachments })) executeUserPrompt(prompt, false, undefined, attachments);
+    files.clear();
     setInputVal('');
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
     }
+  };
+
+  // Re-runs the user turn at or before `index`, dropping it and everything after so the reply is regenerated.
+  const retryFrom = (index: number) => {
+    if (isWorking) return;
+    let u = index;
+    while (u >= 0 && messages[u].sender !== 'user') u--;
+    if (u < 0) return;
+    const prompt = messages[u].text;
+    useAxionStore.setState({ messages: messages.slice(0, u) });
+    executeUserPrompt(prompt);
+  };
+
+  const previousUserText = (index: number) => {
+    for (let u = index - 1; u >= 0; u--) if (messages[u].sender === 'user') return messages[u].text;
+    return '';
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -162,56 +204,31 @@ export const WorkspaceChat: React.FC = () => {
     window.speechSynthesis.speak(utterance);
   };
 
-  // Voice recording / Web Speech API integration
+  const chatVoice = useRef<VoiceEngine | null>(null);
+  useEffect(() => () => { chatVoice.current?.destroy(); }, []);
   const toggleRecording = () => {
     if (isRecording) {
-      setIsRecording(false);
-      setSpeechState('ready');
-      return;
+      chatVoice.current?.stopListening(); setIsRecording(false); setSpeechState('idle'); setDictationPreview(''); return;
     }
-
-    setIsRecording(true);
-    setSpeechState('listening');
-
-    const SpeechRecognition =
-      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-
-    if (SpeechRecognition) {
-      try {
-        const recognition = new SpeechRecognition();
-        recognition.lang = 'hi-IN';
-        recognition.interimResults = false;
-        recognition.maxAlternatives = 1;
-
-        recognition.onresult = (event: any) => {
-          const transcript = event.results[0][0].transcript;
-          setIsRecording(false);
-          setSpeechState('parsing');
-          executeUserPrompt(transcript, true);
-        };
-
-        recognition.onerror = () => {
-          fallbackVoiceTrigger();
-        };
-
-        recognition.start();
-      } catch {
-        fallbackVoiceTrigger();
-      }
-    } else {
-      fallbackVoiceTrigger();
-    }
-  };
-
-  const fallbackVoiceTrigger = () => {
-    setTimeout(() => {
-      setSpeechState('parsing');
-      setTimeout(() => {
-        setIsRecording(false);
-        setSpeechState('working');
-        executeUserPrompt('Bhai dashboard ka header thoda chhota kar de aur date right side mein daal de', true);
-      }, 700);
-    }, 1200);
+    setVoiceInputError('');
+    chatVoice.current?.destroy();
+    // Dictation: what you say is written into the message box (like typing), where you can
+    // edit it and press Send. Nothing is sent, and no new chat starts, until you do.
+    const engine = new VoiceEngine({
+      onStateChange: state => { if (state !== 'thinking') { setSpeechState(state); setIsRecording(state === 'listening'); } },
+      onTranscript: (text, final) => {
+        if (!final) { setDictationPreview(text); return; }
+        setDictationPreview('');
+        const spoken = text.trim();
+        if (spoken) setInputVal(prev => (prev && !/\s$/.test(prev) ? `${prev} ${spoken}` : `${prev}${spoken}`));
+        // Keep listening for the next sentence until the mic is switched off.
+        setTimeout(() => { if (chatVoice.current === engine) engine.completeTurn(); }, 0);
+      },
+      onError: error => { setIsRecording(false); setDictationPreview(''); setVoiceInputError(error); }
+    });
+    chatVoice.current = engine;
+    engine.configure({...useAxionStore.getState().voiceSettings, listeningMode: 'continuous'}, false);
+    engine.startListening();
   };
 
   const toggleDiffExpand = (msgId: string) => {
@@ -235,17 +252,17 @@ export const WorkspaceChat: React.FC = () => {
 
   const quickPrompts = [
     {
-      label: '🎤 Hinglish Voice Refactor',
-      prompt: 'Bhai dashboard ka header thoda chhota kar de aur date right side mein daal de',
+      label: '🎤 Voice Refactor',
+      prompt: 'Make the dashboard header more compact and move the date to the right side',
       isVoice: true
     },
     {
       label: 'Explain Project Architecture',
-      prompt: 'Mere project ka main App component explain karo aur dependencies batao'
+      prompt: 'Explain the main App component of this project and its dependencies'
     },
     {
       label: 'Create StatsCard Component',
-      prompt: 'Ek naya StatsCard component banao with glowing trend metrics'
+      prompt: 'Create a new StatsCard component with glowing trend metrics'
     },
     {
       label: 'Simulate Build Error Recovery',
@@ -271,11 +288,28 @@ export const WorkspaceChat: React.FC = () => {
   const hasMessages = messages.length > 0;
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#0b0b0c] overflow-hidden relative">
+    <div className="axion-chat flex-1 flex flex-col h-full bg-[#050508] overflow-hidden relative">
+      {/* Upgraded Central AI Chat / Voice Panel Header with Live AXION Holographic Visualizer */}
+      <CentralPanelHeader
+        isRecording={isRecording}
+        onToggleVoiceRecording={toggleRecording}
+        onOpenModelMenu={() => setIsModelMenuOpen(true)}
+        onOpenAgentMenu={() => setIsAgentMenuOpen(true)}
+      />
+
+      {voiceInputError && (
+        <p role="alert" className="px-4 py-2 text-xs text-rose-300 bg-rose-950/40 border-b border-rose-500/30 flex items-center justify-between">
+          <span>{voiceInputError}</span>
+          <button onClick={() => setVoiceInputError('')} className="underline hover:text-white">Dismiss</button>
+        </p>
+      )}
+
+      {hasMessages && <ChatCoreRail />}
+
       {/* Messages Scroll Area OR Empty Chat Landing Hero */}
       {hasMessages ? (
-        <div className="flex-1 overflow-y-auto px-4 md:px-8 py-8 space-y-7 max-w-3xl lg:max-w-4xl w-full mx-auto">
-          {messages.map((msg) => {
+        <div className="axion-active-messages flex-1 overflow-y-auto px-4 md:px-8 py-6 space-y-6 max-w-3xl lg:max-w-4xl w-full mx-auto cyber-grid-bg">
+          {messages.map((msg, index) => {
             const isUser = msg.sender === 'user';
             const isSystem = msg.sender === 'system';
             const isSpeaking = speakingMessageId === msg.id;
@@ -290,13 +324,13 @@ export const WorkspaceChat: React.FC = () => {
                 {/* Left Avatar for Assistant & System */}
                 {!isUser && (
                   <div
-                    className={`w-6 h-6 rounded-md flex items-center justify-center shrink-0 text-xs mt-1 ${
+                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 text-xs mt-1 shadow-sm ${
                       isSystem
-                        ? 'bg-amber-950/40 text-amber-400 border border-amber-800/50'
-                        : 'bg-[#18181b] text-zinc-400 border border-zinc-800'
+                        ? 'bg-amber-950/60 text-amber-400 border border-amber-500/40 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
+                        : 'bg-[#081020] text-[#00f0ff] border border-cyan-500/35 shadow-[0_0_12px_rgba(0,240,255,0.25)]'
                     }`}
                   >
-                    {isSystem ? <AlertTriangle className="w-3.5 h-3.5" /> : <Bot className="w-3.5 h-3.5 text-zinc-300" />}
+                    {isSystem ? <AlertTriangle className="w-3.5 h-3.5" /> : <span aria-label="Supreme Core" role="img">👑</span>}
                   </div>
                 )}
 
@@ -307,14 +341,14 @@ export const WorkspaceChat: React.FC = () => {
                   }`}
                 >
                   {/* Meta Header */}
-                  <div className="flex items-center gap-2 text-[11px] text-zinc-500 font-mono px-0.5">
-                    <span className="font-medium text-zinc-300">
-                      {isUser ? 'You' : msg.agentName || 'Boss Agent'}
+                  <div className="flex items-center gap-2 text-[11px] text-cyan-300/60 font-mono px-0.5">
+                    <span className="font-semibold text-cyan-200">
+                      {isUser ? 'You' : isSystem?'System':'AXION'}
                     </span>
                     <span>{msg.timestamp}</span>
                     {msg.voiceTranscript && (
-                      <span className="px-1.5 py-0.2 rounded bg-zinc-800/80 text-zinc-400 border border-zinc-700/60 text-[10px] flex items-center gap-1 font-sans">
-                        <Mic className="w-2.5 h-2.5 text-red-400" />
+                      <span className="px-2 py-0.5 rounded-full bg-cyan-950/70 text-[#00f0ff] border border-cyan-500/40 text-[10px] flex items-center gap-1 font-mono">
+                        <Mic className="w-2.5 h-2.5 text-[#00f0ff] animate-pulse" />
                         Voice Input ({msg.voiceTranscript.language})
                       </span>
                     )}
@@ -322,51 +356,48 @@ export const WorkspaceChat: React.FC = () => {
 
                   {/* Message Body */}
                   {isUser ? (
-                    <div className="p-3.5 rounded-2xl bg-zinc-800/90 text-zinc-100 text-sm leading-relaxed border border-zinc-750/70 shadow-sm">
+                    <div className="p-4 rounded-2xl bg-[#0c182c]/90 text-cyan-50 text-sm leading-relaxed border border-cyan-500/35 shadow-[0_0_20px_rgba(0,240,255,0.08)] backdrop-blur-sm">
+                      {msg.attachments?.length ? (
+                        <div className="flex flex-wrap gap-1.5 mb-2">
+                          {msg.attachments.map((a, i) => (
+                            <span key={i} className="inline-flex items-center gap-1 rounded-md border border-cyan-500/30 px-1.5 py-0.5 text-[11px] font-mono text-cyan-200 max-w-[220px]">
+                              <Paperclip className="w-3 h-3 shrink-0" /><span className="truncate">{a.name}</span>
+                            </span>
+                          ))}
+                        </div>
+                      ) : null}
                       <div className="whitespace-pre-wrap font-sans">{msg.text}</div>
                     </div>
                   ) : (
                     <div className="w-full space-y-3">
                       {/* Formatted Markdown Body */}
-                      <div className="p-4 rounded-2xl bg-[#121215] border border-zinc-800/90 shadow-sm">
-                        <MarkdownRenderer content={msg.text} />
+                      <div className="p-4 rounded-2xl bg-[#070b16]/85 border border-cyan-500/20 shadow-[0_4px_24px_rgba(0,0,0,0.6)] backdrop-blur-md">
+                        {msg.text.trim() ? (
+                          <MarkdownRenderer content={msg.text} />
+                        ) : (
+                          <div className="flex items-center gap-2 text-xs font-mono text-cyan-300/80 animate-pulse">
+                            <span className="w-1.5 h-1.5 rounded-full bg-[#00f0ff]" />
+                            {isWorking ? 'Thinking…' : 'No reply was received.'}
+                          </div>
+                        )}
                       </div>
-
-                      {/* Autonomous Reasoning Chain if available */}
-                      {msg.reasoningSteps && msg.reasoningSteps.length > 0 && (
-                        <div className="p-3 rounded-xl bg-[#0f0f12] border border-zinc-800/70 space-y-1.5 text-xs font-mono">
-                          <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold flex items-center gap-1.5">
-                            <Sparkles className="w-3 h-3 text-zinc-400" />
-                            <span>Boss Agent Delegation Chain</span>
-                          </div>
-                          <div className="space-y-1 pt-1">
-                            {msg.reasoningSteps.map((step, idx) => (
-                              <div key={idx} className="flex items-center gap-2 text-zinc-400">
-                                <span className="w-1.5 h-1.5 rounded-full bg-zinc-600" />
-                                <span className="font-medium text-zinc-300">{step.agent}:</span>
-                                <span>{step.action}</span>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
 
                       {/* Proposed AST Diff Gate Card */}
                       {msg.proposedDiff && (
-                        <div className="rounded-xl border border-zinc-750 bg-[#141418] overflow-hidden shadow-md">
-                          <div className="p-3 bg-[#18181d] border-b border-zinc-800 flex flex-wrap items-center justify-between gap-2">
+                        <div className="rounded-xl border border-cyan-500/30 bg-[#080e1c] overflow-hidden shadow-[0_0_25px_rgba(0,240,255,0.1)]">
+                          <div className="p-3 bg-[#0a1224] border-b border-cyan-500/25 flex flex-wrap items-center justify-between gap-2">
                             <div className="flex items-center gap-2">
-                              <div className="p-1.5 rounded-md bg-zinc-800/80 text-zinc-300">
-                                <GitCompare className="w-4 h-4 text-zinc-300" />
+                              <div className="p-1.5 rounded-md bg-cyan-950/80 text-[#00f0ff] border border-cyan-500/30">
+                                <GitCompare className="w-4 h-4 text-[#00f0ff]" />
                               </div>
                               <div>
-                                <div className="text-xs font-mono font-semibold text-zinc-200 flex items-center gap-2">
+                                <div className="text-xs font-mono font-semibold text-white flex items-center gap-2">
                                   <span>{msg.proposedDiff.filePath}</span>
-                                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-400">
+                                  <span className="text-[10px] px-1.5 py-0.2 rounded bg-cyan-950 text-cyan-300 border border-cyan-500/30">
                                     {msg.proposedDiff.taskId}
                                   </span>
                                 </div>
-                                <div className="text-[11px] text-zinc-400 mt-0.5">
+                                <div className="text-[11px] text-cyan-300/80 mt-0.5">
                                   {msg.proposedDiff.summary}
                                 </div>
                               </div>
@@ -375,7 +406,7 @@ export const WorkspaceChat: React.FC = () => {
                             <div className="flex items-center gap-2">
                               <button
                                 onClick={() => toggleDiffExpand(msg.id)}
-                                className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-zinc-800/80 hover:bg-zinc-700 text-zinc-200 text-xs font-medium transition"
+                                className="flex items-center gap-1 px-2.5 py-1 rounded-md bg-[#0e1930] hover:bg-[#142344] text-cyan-200 border border-cyan-500/30 text-xs font-medium transition"
                               >
                                 <span>{isDiffExpanded ? 'Hide Diff' : 'Review Changes'}</span>
                                 {isDiffExpanded ? (
@@ -389,13 +420,13 @@ export const WorkspaceChat: React.FC = () => {
                                 <>
                                   <button
                                     onClick={() => rejectDiff(msg.proposedDiff!.id)}
-                                    className="px-2.5 py-1 rounded-md border border-rose-500/30 bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 text-xs font-medium transition"
+                                    className="px-2.5 py-1 rounded-md border border-rose-500/40 bg-rose-950/30 hover:bg-rose-900/40 text-rose-300 text-xs font-medium transition"
                                   >
                                     Reject
                                   </button>
                                   <button
                                     onClick={() => approveDiff(msg.proposedDiff!.id)}
-                                    className="px-3 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold shadow-sm transition"
+                                    className="px-3 py-1 rounded-md bg-[#00f0ff] hover:bg-[#38bdf8] text-[#050508] text-xs font-bold shadow-[0_0_15px_rgba(0,240,255,0.4)] transition"
                                   >
                                     Approve
                                   </button>
@@ -406,7 +437,7 @@ export const WorkspaceChat: React.FC = () => {
 
                           {/* Expandable full diff inline */}
                           {isDiffExpanded && (
-                            <div className="p-2 border-t border-zinc-800 bg-[#0c0c0e]">
+                            <div className="p-2 border-t border-cyan-500/20 bg-[#060a14]">
                               <DiffViewer diff={msg.proposedDiff} />
                             </div>
                           )}
@@ -415,23 +446,23 @@ export const WorkspaceChat: React.FC = () => {
 
                       {/* Native Build Status Card */}
                       {msg.buildStatus && (
-                        <div className="p-2.5 rounded-lg bg-[#121215] border border-zinc-800 flex items-center justify-between my-1">
+                        <div className="p-3 rounded-xl bg-[#080d1a] border border-cyan-500/25 flex items-center justify-between my-1 shadow-[0_0_15px_rgba(0,240,255,0.06)]">
                           <div className="flex items-center gap-2">
                             {msg.buildStatus === 'passed' ? (
-                              <CheckCircle className="w-4 h-4 text-emerald-400" />
+                              <CheckCircle className="w-4 h-4 text-[#00f0ff]" />
                             ) : msg.buildStatus === 'building' ? (
-                              <div className="w-3.5 h-3.5 border-2 border-zinc-400 border-t-transparent rounded-full animate-spin" />
+                              <div className="w-3.5 h-3.5 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin" />
                             ) : (
                               <AlertTriangle className="w-4 h-4 text-rose-400" />
                             )}
-                            <span className="text-xs font-mono text-zinc-300">
-                              Build Validation:{' '}
+                            <span className="text-xs font-mono text-cyan-200">
+                              Project checks:{' '}
                               <strong
                                 className={
                                   msg.buildStatus === 'passed'
-                                    ? 'text-emerald-400'
+                                    ? 'text-[#00f0ff]'
                                     : msg.buildStatus === 'building'
-                                    ? 'text-zinc-300'
+                                    ? 'text-cyan-300'
                                     : 'text-rose-400'
                                 }
                               >
@@ -443,15 +474,16 @@ export const WorkspaceChat: React.FC = () => {
                           {msg.buildStatus === 'failed' && (
                             <div className="flex items-center gap-2">
                               <button
-                                onClick={healBuildError}
-                                className="flex items-center gap-1 px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 rounded text-xs font-medium transition"
+                                onClick={() => void requestCheckFix(msg.id)}
+                                disabled={isWorking}
+                                className="flex items-center gap-1 px-2.5 py-1 bg-cyan-950/80 hover:bg-cyan-900/80 text-cyan-200 border border-cyan-500/40 rounded-lg text-xs font-medium transition disabled:opacity-50"
                               >
-                                <Wrench className="w-3 h-3 text-amber-400" />
-                                Auto-Heal Regression
+                                <Wrench className="w-3 h-3 text-cyan-400" />
+                                Fix it
                               </button>
                               <button
                                 onClick={() => setCurrentTab('terminal')}
-                                className="flex items-center gap-1 px-2 py-1 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 rounded text-xs transition"
+                                className="flex items-center gap-1 px-2 py-1 bg-[#0a1224] hover:bg-[#0e1930] text-cyan-300 hover:text-white rounded-lg text-xs border border-cyan-500/20 transition"
                               >
                                 <Terminal className="w-3 h-3" />
                                 Logs
@@ -460,105 +492,84 @@ export const WorkspaceChat: React.FC = () => {
                           )}
                         </div>
                       )}
+                      {msg.buildStatus === 'failed' && msg.buildErrorLogs && (
+                        <details className="rounded-xl border border-rose-500/25 bg-[#0b0a12] text-xs">
+                          <summary className="cursor-pointer px-3 py-2 text-rose-300/90 font-mono">Error output</summary>
+                          <pre className="max-h-72 overflow-auto px-3 pb-3 whitespace-pre-wrap font-mono text-[11px] text-rose-100/80">{msg.buildErrorLogs}</pre>
+                        </details>
+                      )}
                     </div>
                   )}
 
-                  {/* Subtle Hover Action Toolbar for Assistant */}
-                  {!isUser && (
-                    <div className="flex items-center gap-1 pt-1 opacity-60 group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => handleCopyMessage(msg.id, msg.text)}
-                        className="p-1.5 rounded hover:bg-zinc-800/80 text-zinc-500 hover:text-zinc-200 transition"
-                        title="Copy response"
-                      >
-                        {isCopied ? (
-                          <Check className="w-3.5 h-3.5 text-emerald-400" />
-                        ) : (
-                          <Copy className="w-3.5 h-3.5" />
-                        )}
-                      </button>
+                  {isUser&&<ResponseActions isUser text={msg.text} onRetry={isWorking?undefined:()=>retryFrom(index)}/>}
+                  {!isUser&&!isSystem&&!!msg.text.trim()&&<ResponseActions text={msg.text} ecc={msg.ecc} durationMs={msg.durationMs} onRetry={isWorking?undefined:()=>retryFrom(index)} shareText={`Me: ${previousUserText(index)}
 
-                      <button
-                        onClick={() => handleToggleSpeak(msg.id, msg.text)}
-                        className={`p-1.5 rounded transition ${
-                          isSpeaking
-                            ? 'text-amber-400 hover:bg-amber-500/10'
-                            : 'text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800/80'
-                        }`}
-                        title={isSpeaking ? 'Stop speaking' : 'Listen to response'}
-                      >
-                        {isSpeaking ? (
-                          <Square className="w-3.5 h-3.5 fill-current animate-pulse" />
-                        ) : (
-                          <Volume2 className="w-3.5 h-3.5" />
-                        )}
-                      </button>
-                    </div>
-                  )}
+AXION: ${msg.text}`} onSpeak={()=>handleToggleSpeak(msg.id,msg.text)}/>}
+
                 </div>
 
                 {/* Right Avatar for User */}
                 {isUser && (
-                  <div className="w-6 h-6 rounded-md bg-zinc-800 text-zinc-400 border border-zinc-700 flex items-center justify-center shrink-0 text-xs mt-1">
-                    <User className="w-3.5 h-3.5" />
+                  <div className="w-7 h-7 rounded-lg bg-cyan-950/90 text-cyan-300 border border-cyan-500/40 flex items-center justify-center shrink-0 text-xs mt-1 shadow-[0_0_10px_rgba(0,240,255,0.2)]">
+                    <User className="w-4 h-4 text-cyan-200" />
                   </div>
                 )}
               </div>
             );
           })}
 
-          {/* Working Indicator */}
-          {isWorking && (
-            <div className="flex items-center gap-3 text-xs text-zinc-400 font-mono animate-pulse pt-2">
-              <div className="w-6 h-6 rounded-md bg-zinc-800/80 flex items-center justify-center text-zinc-400">
-                <Bot className="w-3.5 h-3.5" />
-              </div>
-              <span>
-                {isManualMode && activeSpecialist
-                  ? `${activeSpecialist.name} generating code patch...`
-                  : 'Boss Agent triaging & generating AST diff...'}
-              </span>
-            </div>
+          {newSession.pending && (
+            <NewSessionCard
+              pending={newSession.pending}
+              onNewSession={newSession.startNewSession}
+              onKeepHere={newSession.keepHere}
+            />
           )}
 
           <div ref={messagesEndRef} />
         </div>
       ) : (
         /* ==================================================
-           AXION LIVING CORE DESKTOP CHAT HERO
+           AXION HOLOGRAPHIC AI DESKTOP CHAT HERO
            ================================================== */
-        <div className="flex-1 flex flex-col items-center justify-center px-4 overflow-y-auto max-w-2xl w-full mx-auto text-center space-y-5 animate-in fade-in duration-200 py-6 my-auto">
-          {/* Hero Abstract Living Core (180-240px footprint) */}
-          <AxionLivingCore state="idle" size="welcome" />
+        <div className="axion-welcome flex-1 flex flex-col items-center justify-center px-4 overflow-y-auto max-w-2xl w-full mx-auto text-center my-auto">
+          {/* Live AXION Holographic Kinetic Pulse Visualizer Hero */}
+          <div className="relative py-2 flex items-center justify-center">
+            <AxionLivingCore
+              state={speechState === 'speaking' ? 'speaking' : isWorking ? 'thinking' : isRecording ? 'listening' : 'idle'}
+              size="welcome"
+            />
+          </div>
 
           {/* Clean Typography */}
-          <div className="space-y-1.5">
-            <div className="text-[11px] font-mono font-semibold text-cyan-400/90 uppercase tracking-widest">
-              AXION
+          <div className="space-y-2 mt-2">
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-cyan-950/60 border border-cyan-500/30 text-[10px] font-mono font-semibold text-[#00f0ff] tracking-widest uppercase shadow-[0_0_12px_rgba(0,240,255,0.2)]">
+              <Sparkles className="w-3 h-3 text-[#00f0ff]" />
+              <span>QUANTUM HOLOGRAPHIC CORE // AXION-X100</span>
             </div>
             <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
-              Local intelligence. Your workspace.
+              Local Intelligence. Engineering Velocity.
             </h1>
-            <p className="text-xs sm:text-sm text-zinc-400 max-w-md mx-auto leading-relaxed">
-              Private local workspace orchestration with voice-first coding and 17 specialist agents.
+            <p className="text-xs sm:text-sm text-cyan-200/70 max-w-md mx-auto leading-relaxed">
+              Your local workspace. Ask a question or start an interactive voice conversation with live AST review gates.
             </p>
           </div>
 
           {/* Three Focused Quick Action Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 w-full max-w-lg text-left pt-1">
+          <div className="axion-welcome-actions w-full text-left pt-2 grid grid-cols-1 sm:grid-cols-3 gap-3">
             <button
               onClick={() => setCurrentTab('local_workspace')}
-              className="p-3 rounded-xl bg-[#121215] border border-zinc-800/90 hover:border-zinc-700 hover:bg-[#16161a] transition group flex flex-col justify-between min-h-[78px] shadow-sm"
+              className="p-3.5 rounded-2xl bg-[#080d1a]/80 border border-cyan-500/25 hover:border-cyan-400/60 hover:bg-[#0c1426] hover:shadow-[0_0_20px_rgba(0,240,255,0.2)] transition-all group flex flex-col justify-between min-h-[88px] backdrop-blur-md"
             >
               <div className="flex items-center justify-between w-full">
-                <Folder className="w-4 h-4 text-cyan-400" />
-                <ArrowUp className="w-3 h-3 text-zinc-600 group-hover:text-zinc-300 rotate-45 transition" />
+                <Folder className="w-4 h-4 text-[#00f0ff]" />
+                <ArrowUp className="w-3 h-3 text-cyan-500/60 group-hover:text-[#00f0ff] rotate-45 transition" />
               </div>
               <div className="mt-2">
-                <div className="text-xs font-semibold text-zinc-200 group-hover:text-white">
+                <div className="text-xs font-semibold text-white group-hover:text-[#00f0ff] transition">
                   Open Workspace
                 </div>
-                <div className="text-[11px] text-zinc-500 truncate mt-0.5 font-mono">
+                <div className="text-[11px] text-cyan-300/60 truncate mt-0.5 font-mono">
                   {activeWorkspace ? activeWorkspace.name : 'Mount directory'}
                 </div>
               </div>
@@ -569,17 +580,17 @@ export const WorkspaceChat: React.FC = () => {
                 setInputVal('Analyze this project architecture and check for build issues.');
                 textareaRef.current?.focus();
               }}
-              className="p-3 rounded-xl bg-[#121215] border border-zinc-800/90 hover:border-zinc-700 hover:bg-[#16161a] transition group flex flex-col justify-between min-h-[78px] shadow-sm"
+              className="p-3.5 rounded-2xl bg-[#080d1a]/80 border border-cyan-500/25 hover:border-cyan-400/60 hover:bg-[#0c1426] hover:shadow-[0_0_20px_rgba(0,240,255,0.2)] transition-all group flex flex-col justify-between min-h-[88px] backdrop-blur-md"
             >
               <div className="flex items-center justify-between w-full">
-                <Sparkles className="w-4 h-4 text-cyan-400" />
-                <ArrowUp className="w-3 h-3 text-zinc-600 group-hover:text-zinc-300 rotate-45 transition" />
+                <Sparkles className="w-4 h-4 text-[#00f0ff]" />
+                <ArrowUp className="w-3 h-3 text-cyan-500/60 group-hover:text-[#00f0ff] rotate-45 transition" />
               </div>
               <div className="mt-2">
-                <div className="text-xs font-semibold text-zinc-200 group-hover:text-white">
+                <div className="text-xs font-semibold text-white group-hover:text-[#00f0ff] transition">
                   Ask AXION
                 </div>
-                <div className="text-[11px] text-zinc-500 truncate mt-0.5">
+                <div className="text-[11px] text-cyan-300/60 truncate mt-0.5 font-mono">
                   Engineering prompt
                 </div>
               </div>
@@ -587,17 +598,17 @@ export const WorkspaceChat: React.FC = () => {
 
             <button
               onClick={() => setSpeechMode('speech')}
-              className="p-3 rounded-xl bg-[#121215] border border-zinc-800/90 hover:border-zinc-700 hover:bg-[#16161a] transition group flex flex-col justify-between min-h-[78px] shadow-sm"
+              className="p-3.5 rounded-2xl bg-[#080d1a]/80 border border-cyan-500/25 hover:border-cyan-400/60 hover:bg-[#0c1426] hover:shadow-[0_0_20px_rgba(0,240,255,0.2)] transition-all group flex flex-col justify-between min-h-[88px] backdrop-blur-md"
             >
               <div className="flex items-center justify-between w-full">
-                <Mic className="w-4 h-4 text-cyan-400" />
-                <ArrowUp className="w-3 h-3 text-zinc-600 group-hover:text-zinc-300 rotate-45 transition" />
+                <Mic className="w-4 h-4 text-[#00f0ff]" />
+                <ArrowUp className="w-3 h-3 text-cyan-500/60 group-hover:text-[#00f0ff] rotate-45 transition" />
               </div>
               <div className="mt-2">
-                <div className="text-xs font-semibold text-zinc-200 group-hover:text-white">
+                <div className="text-xs font-semibold text-white group-hover:text-[#00f0ff] transition">
                   Voice Mode
                 </div>
-                <div className="text-[11px] text-zinc-500 truncate mt-0.5">
+                <div className="text-[11px] text-cyan-300/60 truncate mt-0.5 font-mono">
                   Live vocal coding
                 </div>
               </div>
@@ -607,32 +618,33 @@ export const WorkspaceChat: React.FC = () => {
       )}
 
       {/* ==================================================
-         4. BOSS AGENT & CHAT COMPOSER (MATCH NEXTRON INTERACTION)
+         4. SUPREME CORE & CHAT COMPOSER (HOLOGRAPHIC AXION GLOW)
          ================================================== */}
-      <div className="p-4 bg-gradient-to-t from-[#0b0b0c] via-[#0b0b0c]/90 to-transparent shrink-0">
+      <div className="p-4 bg-gradient-to-t from-[#050508] via-[#050508]/95 to-transparent shrink-0">
         <div className="max-w-3xl lg:max-w-4xl mx-auto space-y-2">
-          {/* Active Voice Waveform Pill (Only appears when voice is active!) */}
+          {/* Active Voice Waveform Pill */}
           <div className="flex justify-center">
             <VoiceAudioWaveform isActive={isRecording} state={speechState} />
           </div>
 
           {/* Composer Box */}
-          <div className="bg-[#131316] border border-zinc-800/90 hover:border-zinc-700/80 rounded-2xl p-3 shadow-xl shadow-black/40 transition-all focus-within:border-zinc-600 focus-within:ring-1 focus-within:ring-zinc-600/30">
+          <div onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault(); }} onDrop={files.onDrop} className="bg-[#070c18]/90 backdrop-blur-xl border border-cyan-500/30 hover:border-cyan-400/50 rounded-2xl p-3 shadow-[0_4px_30px_rgba(0,0,0,0.7)] transition-all focus-within:border-[#00f0ff] focus-within:ring-1 focus-within:ring-cyan-500/30 focus-within:shadow-[0_0_25px_rgba(0,240,255,0.2)]">
+            <AttachmentChips attachments={files.attachments} busy={files.busy} error={files.error} onRemove={files.remove} />
             {/* Input Row */}
             <div className="flex items-start gap-2.5">
               {/* Plus Menu Button */}
               <div className="relative" ref={plusMenuRef}>
                 <button
                   onClick={() => setIsPlusMenuOpen(!isPlusMenuOpen)}
-                  className="p-1.5 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition mt-0.5"
+                  className="p-1.5 rounded-lg text-cyan-400/80 hover:text-[#00f0ff] hover:bg-cyan-500/20 transition mt-0.5"
                   title="Quick prompt presets"
                 >
                   <Plus className="w-4 h-4" />
                 </button>
 
                 {isPlusMenuOpen && (
-                  <div className="absolute bottom-full left-0 mb-2 w-64 bg-[#18181b] border border-zinc-800 rounded-xl shadow-2xl p-1 z-50 animate-in fade-in duration-100">
-                    <div className="px-2.5 py-1 text-[10px] font-mono text-zinc-500 uppercase tracking-wider font-semibold">
+                  <div className="absolute bottom-full left-0 mb-2 w-64 bg-[#080e1c] border border-cyan-500/35 rounded-xl shadow-2xl p-1 z-50 animate-in fade-in duration-100">
+                    <div className="px-2.5 py-1 text-[10px] font-mono text-cyan-400 uppercase tracking-wider font-semibold">
                       Quick Pilots & Presets
                     </div>
                     {quickPrompts.map((qp, idx) => (
@@ -643,7 +655,7 @@ export const WorkspaceChat: React.FC = () => {
                           if (qp.action) qp.action();
                           else if (qp.prompt) executeUserPrompt(qp.prompt, qp.isVoice);
                         }}
-                        className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-zinc-300 hover:bg-zinc-800 hover:text-white transition flex items-center justify-between"
+                        className="w-full text-left px-2.5 py-1.5 rounded-lg text-xs text-cyan-100 hover:bg-cyan-950/60 hover:text-[#00f0ff] transition flex items-center justify-between font-mono"
                       >
                         <span className="truncate">{qp.label}</span>
                       </button>
@@ -652,30 +664,36 @@ export const WorkspaceChat: React.FC = () => {
                 )}
               </div>
 
+              <AttachButton onFiles={(list) => void files.addFiles(list)} disabled={isWorking} />
+
               {/* Textarea */}
               <textarea
                 ref={textareaRef}
                 value={inputVal}
                 onChange={handleInputResize}
                 onKeyDown={handleKeyDown}
+                onPaste={files.onPaste}
                 rows={1}
                 placeholder={
                   isRecording
-                    ? 'Listening... Speak in Hindi, Hinglish, or English'
-                    : 'Ask AXION anything in English or Hinglish (e.g. "Bhai header thoda chhota kar de")...'
+                    ? 'Listening... speak in any language'
+                    : 'Ask AXION anything, in any language (e.g. "Scan this project for bugs")...'
                 }
-                className="flex-1 bg-transparent text-sm text-[#f4f4f5] placeholder-zinc-500 focus:outline-none resize-none max-h-36 leading-relaxed font-sans pt-0.5"
+                className="flex-1 bg-transparent text-sm text-[#e2f1fd] placeholder-cyan-300/40 focus:outline-none resize-none max-h-36 leading-relaxed font-sans pt-0.5"
               />
+              {dictationPreview && (
+                <span aria-live="polite" className="self-center max-w-[40%] truncate text-xs italic text-cyan-300/60">{dictationPreview}…</span>
+              )}
 
               {/* Voice Microphone Toggle */}
               <button
                 onClick={toggleRecording}
                 className={`p-1.5 rounded-lg transition mt-0.5 ${
                   isRecording
-                    ? 'bg-rose-600 text-white shadow-lg shadow-rose-900/40 animate-pulse'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60'
+                    ? 'bg-[#00f0ff] text-[#050508] shadow-[0_0_15px_rgba(0,240,255,0.7)] animate-pulse'
+                    : 'text-cyan-400/80 hover:text-[#00f0ff] hover:bg-cyan-500/20'
                 }`}
-                title="Toggle Hinglish / Voice Coding Engine"
+                title="Toggle voice input"
               >
                 {isRecording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
               </button>
@@ -683,83 +701,83 @@ export const WorkspaceChat: React.FC = () => {
               {/* Send Button */}
               <button
                 onClick={handleSend}
-                disabled={!inputVal.trim() || isWorking}
-                className="w-7 h-7 rounded-full bg-zinc-100 hover:bg-white text-zinc-950 disabled:opacity-20 disabled:hover:bg-zinc-100 flex items-center justify-center transition shadow-sm font-bold mt-0.5 shrink-0"
+                disabled={(!inputVal.trim() && !files.attachments.length) || isWorking || files.busy}
+                className="w-7 h-7 rounded-full bg-[#00f0ff] hover:bg-[#38bdf8] text-[#050508] disabled:opacity-20 disabled:hover:bg-[#00f0ff] flex items-center justify-center transition shadow-[0_0_12px_rgba(0,240,255,0.4)] font-bold mt-0.5 shrink-0"
                 title="Send Prompt (Enter)"
               >
                 <ArrowUp className="w-4 h-4 stroke-[2.5]" />
               </button>
             </div>
 
-            {/* Composer Footer: Nextron-Style Boss Agent Interaction */}
-            <div className="pt-2 mt-2 border-t border-zinc-800/50 flex flex-wrap items-center justify-between gap-2 text-xs">
+            {/* Composer Footer: Holographic Supreme Core & Model Router Interaction */}
+            <div className="pt-2 mt-2 border-t border-cyan-500/20 flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-2">
-                {/* BOSS AGENT CONTROL BUTTON */}
+                {/* SUPREME CORE CONTROL BUTTON */}
                 <div className="relative" ref={agentMenuRef}>
                   {isBossLocked ? (
                     /* LOCKED AUTONOMOUS MODE (DEFAULT) */
                     <button
                       onClick={() => setIsAgentMenuOpen(!isAgentMenuOpen)}
-                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-zinc-850 hover:bg-zinc-800 text-zinc-100 border border-zinc-700/80 text-[11px] font-medium transition shadow-sm"
-                      title="Boss Agent Autonomous Orchestration is Active (Click to configure)"
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-[#0a1224] hover:bg-[#0e1932] text-white border border-cyan-500/35 text-[11px] font-mono transition shadow-[0_0_10px_rgba(0,240,255,0.1)]"
+                      title="Supreme Core Autonomous Orchestration is Active (Click to configure)"
                     >
-                      <span className="w-1.5 h-1.5 rounded-full bg-cyan-400" />
-                      <span>Boss Agent</span>
-                      <span className="text-[9px] font-mono font-semibold text-cyan-400 bg-cyan-500/10 border border-cyan-500/20 px-1 py-0.2 rounded">AUTO</span>
+                      <span className="w-1.5 h-1.5 rounded-full bg-[#00f0ff] shadow-[0_0_6px_#00f0ff]" />
+                      <span>Supreme Core</span>
+                      <span className="text-[9px] font-mono font-semibold text-[#00f0ff] bg-cyan-950/60 border border-cyan-500/30 px-1 py-0.2 rounded">AUTO</span>
                     </button>
                   ) : (
                     /* UNLOCKED MANUAL CONTROL */
                     <button
                       onClick={() => setIsAgentMenuOpen(!isAgentMenuOpen)}
-                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-950/40 hover:bg-amber-900/40 text-amber-300 border border-amber-600/40 text-[11px] font-medium transition shadow-sm"
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-950/40 hover:bg-amber-900/40 text-amber-300 border border-amber-500/40 text-[11px] font-mono transition shadow-[0_0_10px_rgba(245,158,11,0.2)]"
                       title="Manual Mode Unlocked (Click to return to Boss Auto)"
                     >
                       <span className="w-1.5 h-1.5 rounded-full bg-amber-400" />
-                      <span>Boss Agent</span>
+                      <span>Supreme Core</span>
                       <span className="text-[9px] font-mono font-semibold text-amber-400 bg-amber-500/10 border border-amber-500/20 px-1 py-0.2 rounded">MANUAL</span>
                     </button>
                   )}
 
-                  {/* POPOVER FOR BOSS AGENT */}
+                  {/* POPOVER FOR SUPREME CORE */}
                   {isAgentMenuOpen && (
-                    <div className="absolute bottom-full left-0 mb-2 w-72 bg-[#141417] border border-zinc-800 rounded-xl shadow-2xl p-3 z-50 animate-in fade-in duration-100">
+                    <div className="absolute bottom-full left-0 mb-2 w-72 bg-[#080e1c] border border-cyan-500/40 rounded-2xl shadow-[0_0_30px_rgba(0,240,255,0.25)] p-3 z-50 animate-in fade-in duration-100 backdrop-blur-xl">
                       {isBossLocked ? (
                         /* Popover when Locked */
                         <div className="space-y-3">
-                          <div className="flex items-center gap-2 pb-2 border-b border-zinc-800">
+                          <div className="flex items-center gap-2 pb-2 border-b border-cyan-500/20">
                             <span className="text-base">👑</span>
                             <div>
-                              <div className="text-xs font-bold text-white tracking-tight">BOSS AGENT (RULE-BASED PREVIEW)</div>
-                              <div className="text-[10px] text-zinc-400">Rule-based specialist matching is active.</div>
+                              <div className="text-xs font-bold text-white tracking-tight font-mono">SUPREME CORE (AUTONOMOUS)</div>
+                              <div className="text-[10px] text-cyan-300/70 font-mono">Rule-based specialist matching is active.</div>
                             </div>
                           </div>
 
-                          <div className="space-y-1.5 py-1 text-[11px] text-zinc-300 font-sans">
-                            <div className="flex items-center gap-2 text-emerald-400">
+                          <div className="space-y-1.5 py-1 text-[11px] text-cyan-100 font-sans">
+                            <div className="flex items-center gap-2 text-[#00f0ff]">
                               <Check className="w-3.5 h-3.5 shrink-0" />
                               <span>Rule-based specialist matching</span>
                             </div>
-                            <div className="flex items-center gap-2 text-emerald-400">
+                            <div className="flex items-center gap-2 text-[#00f0ff]">
                               <Check className="w-3.5 h-3.5 shrink-0" />
                               <span>Selects zero-cost model tier</span>
                             </div>
-                            <div className="flex items-center gap-2 text-emerald-400">
+                            <div className="flex items-center gap-2 text-[#00f0ff]">
                               <Check className="w-3.5 h-3.5 shrink-0" />
                               <span>Read-only workspace context</span>
                             </div>
-                            <div className="flex items-center gap-2 text-zinc-500">
+                            <div className="flex items-center gap-2 text-cyan-400/50">
                               <span className="w-3.5 h-3.5 flex items-center justify-center text-[10px]">•</span>
-                              <span className="italic">Native terminal execution is not implemented yet</span>
+                              <span className="italic">Native terminal execution gated</span>
                             </div>
                           </div>
 
-                          <div className="pt-2 border-t border-zinc-800">
+                          <div className="pt-2 border-t border-cyan-500/20">
                             <button
                               onClick={() => {
                                 setIsBossLocked(false);
                                 setIsAgentMenuOpen(false);
                               }}
-                              className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-amber-300 text-xs font-medium border border-amber-500/30 transition shadow-sm"
+                              className="w-full flex items-center justify-center gap-2 px-3 py-1.5 rounded-lg bg-cyan-950/60 hover:bg-cyan-900/60 text-amber-300 text-xs font-mono border border-amber-500/40 transition shadow-sm"
                             >
                               <span>🔓</span>
                               <span>Unlock Manual Control</span>
@@ -769,12 +787,12 @@ export const WorkspaceChat: React.FC = () => {
                       ) : (
                         /* Popover when Unlocked */
                         <div className="space-y-3">
-                          <div className="pb-2 border-b border-zinc-800">
-                            <div className="text-xs font-bold text-white flex items-center gap-1.5">
+                          <div className="pb-2 border-b border-cyan-500/20">
+                            <div className="text-xs font-bold text-white flex items-center gap-1.5 font-mono">
                               <span>🔓</span>
                               <span>MANUAL MODE ACTIVE</span>
                             </div>
-                            <p className="text-[10px] text-zinc-400 mt-1">
+                            <p className="text-[10px] text-cyan-300/70 mt-1 font-mono">
                               Specialist agent and model router selections are unlocked for manual control.
                             </p>
                           </div>
@@ -784,7 +802,7 @@ export const WorkspaceChat: React.FC = () => {
                               setIsBossLocked(true);
                               setIsAgentMenuOpen(false);
                             }}
-                            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-bold shadow-sm transition"
+                            className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-[#00f0ff] hover:bg-[#38bdf8] text-[#050508] text-xs font-bold font-mono shadow-[0_0_15px_rgba(0,240,255,0.4)] transition"
                           >
                             <Lock className="w-3.5 h-3.5" />
                             <span>Return to Boss Auto</span>
@@ -795,13 +813,13 @@ export const WorkspaceChat: React.FC = () => {
                   )}
                 </div>
 
-                {/* WHEN LOCKED: Subtle [ 🔒 Auto Route ] Badge with Tooltip */}
+                {/* WHEN LOCKED: Subtle [ 🔒 Auto Route ] Badge */}
                 {isBossLocked && (
                   <div
-                    className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-mono text-zinc-400 bg-zinc-900/60 border border-zinc-800/60"
+                    className="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-mono text-cyan-300/70 bg-[#0a1224]/60 border border-cyan-500/25"
                     title="AXION selects the best available model automatically."
                   >
-                    <Lock className="w-2.5 h-2.5 text-zinc-500" />
+                    <Lock className="w-2.5 h-2.5 text-cyan-400" />
                     <span>Auto Route</span>
                   </div>
                 )}
@@ -813,11 +831,11 @@ export const WorkspaceChat: React.FC = () => {
                     <div className="relative">
                       <button
                         onClick={() => setIsPlusMenuOpen(false)}
-                        className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-850 hover:bg-zinc-800 text-zinc-200 border border-zinc-750 text-[11px] transition shadow-sm"
+                        className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#0a1224] hover:bg-[#0e1932] text-cyan-200 border border-cyan-500/30 text-[11px] font-mono transition shadow-sm"
                       >
                         <span>{activeSpecialist?.avatar || '🤖'}</span>
                         <span className="truncate max-w-[120px] font-medium">{activeSpecialist?.name}</span>
-                        <ChevronDown className="w-3 h-3 text-zinc-500" />
+                        <ChevronDown className="w-3 h-3 text-cyan-400" />
                       </button>
                     </div>
 
@@ -825,21 +843,21 @@ export const WorkspaceChat: React.FC = () => {
                     <div className="relative" ref={modelMenuRef}>
                       <button
                         onClick={() => setIsModelMenuOpen(!isModelMenuOpen)}
-                        className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-850 hover:bg-zinc-800 text-zinc-200 border border-zinc-750 text-[11px] font-mono transition shadow-sm"
+                        className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-[#0a1224] hover:bg-[#0e1932] text-cyan-200 border border-cyan-500/30 text-[11px] font-mono transition shadow-sm"
                         title="Model Router (Manual Override)"
                       >
-                        <Zap className="w-3 h-3 text-emerald-400" />
+                        <Zap className="w-3 h-3 text-[#00f0ff]" />
                         <span className="truncate max-w-[110px]">{activeModel?.name}</span>
-                        <span className="text-[10px] text-emerald-400">Free</span>
-                        <ChevronDown className="w-3 h-3 text-zinc-500" />
+                        <span className="text-[10px] text-[#00f0ff] font-bold">Free</span>
+                        <ChevronDown className="w-3 h-3 text-cyan-400" />
                       </button>
 
                       {/* Model Popover */}
                       {isModelMenuOpen && (
-                        <div className="absolute bottom-full left-0 mb-2 w-72 bg-[#141417] border border-zinc-800 rounded-xl shadow-2xl p-2 z-50 animate-in fade-in duration-100">
-                          <div className="px-2 py-1 border-b border-zinc-800 flex items-center justify-between text-[10px] font-mono text-zinc-500 uppercase">
+                        <div className="absolute bottom-full left-0 mb-2 w-72 bg-[#080e1c] border border-cyan-500/40 rounded-2xl shadow-[0_0_30px_rgba(0,240,255,0.25)] p-2 z-50 animate-in fade-in duration-100 backdrop-blur-xl">
+                          <div className="px-2 py-1 border-b border-cyan-500/20 flex items-center justify-between text-[10px] font-mono text-cyan-400 uppercase">
                             <span>Zero-Cost Model Route</span>
-                            <span className="text-emerald-400">Guaranteed $0.00</span>
+                            <span className="text-[#00f0ff] font-bold">Guaranteed $0.00</span>
                           </div>
                           <div className="py-1 space-y-0.5">
                             {models.map((m) => {
@@ -853,15 +871,15 @@ export const WorkspaceChat: React.FC = () => {
                                   }}
                                   className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-left transition text-xs ${
                                     isSelected
-                                      ? 'bg-zinc-800 text-white font-medium'
-                                      : 'text-zinc-400 hover:bg-zinc-850 hover:text-zinc-200'
+                                      ? 'bg-cyan-950/80 text-[#00f0ff] font-medium border border-cyan-500/30 shadow-[0_0_10px_rgba(0,240,255,0.15)]'
+                                      : 'text-cyan-300 hover:bg-[#0c162c] hover:text-white'
                                   }`}
                                 >
                                   <div>
                                     <div className="font-mono text-xs">{m.name}</div>
-                                    <div className="text-[10px] text-zinc-500">{m.provider} • Free Tier</div>
+                                    <div className="text-[10px] text-cyan-400/60 font-mono">{m.provider} • Free Tier</div>
                                   </div>
-                                  {isSelected && <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0 ml-2" />}
+                                  {isSelected && <Check className="w-3.5 h-3.5 text-[#00f0ff] shrink-0 ml-2" />}
                                 </button>
                               );
                             })}
@@ -874,8 +892,8 @@ export const WorkspaceChat: React.FC = () => {
               </div>
 
               {/* Status Indicator */}
-              <div className="flex items-center gap-2 text-zinc-500 text-[10px] font-mono">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500/80" />
+              <div className="flex items-center gap-2 text-cyan-400/70 text-[10px] font-mono">
+                <span className="w-1.5 h-1.5 rounded-full bg-[#00f0ff] shadow-[0_0_6px_#00f0ff]" />
                 <span>Diff Safety Gate Active</span>
               </div>
             </div>

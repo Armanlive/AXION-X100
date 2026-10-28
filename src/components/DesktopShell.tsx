@@ -119,7 +119,7 @@ export const DesktopShell: React.FC = () => {
 
   return (
     <div
-      className={`h-screen w-screen flex flex-col bg-[#0b0b0c] text-[#f4f4f5] overflow-hidden select-none font-sans antialiased ${
+      className={`h-screen w-screen flex flex-col bg-[#050508] text-[#e2f1fd] overflow-hidden select-none font-sans antialiased ${
         isDraggingTerminalDivider
           ? terminalDockPosition === 'bottom'
             ? 'cursor-row-resize'
@@ -138,7 +138,7 @@ export const DesktopShell: React.FC = () => {
         <DesktopSidebar />
 
         {/* Center Content Tab View */}
-        <main className="flex-1 flex overflow-hidden relative min-w-0">
+        <main className="flex-1 flex overflow-hidden relative min-w-0 bg-[#050508]">
           {speechMode === 'speech' ? (
             <LiveSpeechMode />
           ) : (
@@ -153,7 +153,7 @@ export const DesktopShell: React.FC = () => {
                       </div>
                       <div
                         onMouseDown={handleMouseDownTerminalDivider}
-                        className="w-1 bg-zinc-800 hover:bg-zinc-500 active:bg-zinc-400 cursor-col-resize shrink-0 transition-colors z-20"
+                        className="w-1 bg-cyan-950/60 hover:bg-[#00f0ff] active:bg-[#00f0ff] cursor-col-resize shrink-0 transition-colors z-20 hover:shadow-[0_0_10px_rgba(0,240,255,0.6)]"
                         title="Drag to resize terminal panel"
                       />
                     </>
@@ -170,12 +170,12 @@ export const DesktopShell: React.FC = () => {
                         <>
                           <div
                             onMouseDown={handleMouseDownAuxDivider}
-                            className="w-1 bg-zinc-800 hover:bg-zinc-500 active:bg-zinc-400 cursor-col-resize shrink-0 transition-colors z-20"
+                            className="w-1 bg-cyan-950/60 hover:bg-[#00f0ff] active:bg-[#00f0ff] cursor-col-resize shrink-0 transition-colors z-20 hover:shadow-[0_0_10px_rgba(0,240,255,0.6)]"
                             title="Drag to resize right panel"
                           />
                           <div
                             style={{ width: `${auxPanelWidth}px` }}
-                            className="h-full shrink-0 flex overflow-hidden bg-[#0c0c0e] animate-in slide-in-from-right-2 duration-150 border-l border-zinc-800/80"
+                            className="h-full shrink-0 flex overflow-hidden bg-[#070c18] animate-in slide-in-from-right-2 duration-150 border-l border-cyan-500/20"
                           >
                             {isFilePanelOpen && (
                               <ErrorBoundary fallbackTitle="File Viewer Unavailable">
@@ -197,7 +197,7 @@ export const DesktopShell: React.FC = () => {
                       <>
                         <div
                           onMouseDown={handleMouseDownTerminalDivider}
-                          className="h-1 bg-zinc-800 hover:bg-zinc-500 active:bg-zinc-400 cursor-row-resize shrink-0 transition-colors z-20"
+                          className="h-1 bg-cyan-950/60 hover:bg-[#00f0ff] active:bg-[#00f0ff] cursor-row-resize shrink-0 transition-colors z-20 hover:shadow-[0_0_10px_rgba(0,240,255,0.6)]"
                           title="Drag to resize terminal panel"
                         />
                         <div style={{ height: `${terminalHeight}px` }} className="w-full shrink-0 flex overflow-hidden">
@@ -212,7 +212,7 @@ export const DesktopShell: React.FC = () => {
                     <>
                       <div
                         onMouseDown={handleMouseDownTerminalDivider}
-                        className="w-1 bg-zinc-800 hover:bg-zinc-500 active:bg-zinc-400 cursor-col-resize shrink-0 transition-colors z-20"
+                        className="w-1 bg-cyan-950/60 hover:bg-[#00f0ff] active:bg-[#00f0ff] cursor-col-resize shrink-0 transition-colors z-20 hover:shadow-[0_0_10px_rgba(0,240,255,0.6)]"
                         title="Drag to resize terminal panel"
                       />
                       <div style={{ width: `${terminalWidth}px` }} className="h-full shrink-0 flex overflow-hidden">

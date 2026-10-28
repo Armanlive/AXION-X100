@@ -1,0 +1,105 @@
+.axion-living-core {
+  --ax-cyan: #59f5ff; --ax-blue: #287cff; --ax-amber: #ffb454;
+  --ax-warm-opacity: .22; --ax-wave-opacity: .32; --ax-orbit-time: 28s;
+  width: 140px; aspect-ratio: 1; flex-shrink: 0; position: relative;
+  isolation: isolate; user-select: none;
+}
+.axion-living-core svg { width: 100%; height: 100%; overflow: visible; }
+.axion-living-core svg * { transition: stroke .6s, fill .6s, stop-color .6s, opacity .6s; }
+.axion-living-core:focus-visible { outline: 2px solid var(--ax-cyan); outline-offset: 4px; border-radius: 50%; }
+.ax-core-sm { width: 56px; }
+.ax-core-lg { width: 220px; }
+.ax-core-welcome { width: clamp(350px, 47vh, 460px); max-width: 100%; }
+.ax-core-hero { width: clamp(300px, 43vh, 440px); max-width: 100%; }
+.axion-living-core .ax-warm { opacity: var(--ax-warm-opacity); }
+.axion-living-core .ax-back-field, .axion-living-core .ax-dust, .axion-living-core .ax-nodes,
+.axion-living-core .ax-shell, .axion-living-core .ax-nucleus, .axion-living-core .ax-front-streams,
+.axion-living-core .ax-waves { transform-origin: 0 0; }
+.ax-back-field { animation: ax-orbit var(--ax-orbit-time) linear infinite; }
+.ax-dust { animation: ax-orbit 51s linear infinite reverse; }
+.ax-nodes { animation: ax-orbit 23s linear infinite; }
+.ax-shell { animation: ax-breathe 4.6s ease-in-out infinite; }
+.ax-nucleus { animation: ax-heartbeat 3.9s ease-in-out infinite; }
+.ax-atmosphere { animation: ax-atmosphere 5.3s ease-in-out infinite; }
+.ax-front-streams { animation: ax-stream-drift 19s ease-in-out infinite alternate; }
+.axion-living-core .ax-waves { opacity: var(--ax-wave-opacity); animation: ax-wave 4.1s ease-in-out infinite alternate; }
+.ax-input-response, .ax-wave-response { transition: transform 180ms ease-out, opacity 180ms ease-out; transform-origin: 0 0; }
+.core-state-listening { --ax-blue: #168cf4; --ax-cyan: #8af6ff; --ax-amber: #ff9f36; --ax-warm-opacity: 1; --ax-wave-opacity: .95; --ax-orbit-time: 16s; }
+.core-state-listening .ax-shell { animation-name: ax-inward; animation-duration: 2.7s; }
+.core-state-listening .ax-waves { animation-duration: 2.3s; }
+.core-state-thinking { --ax-cyan: #b7a5ff; --ax-blue: #7053ef; --ax-amber: #de93ff; --ax-warm-opacity: .85; --ax-wave-opacity: .75; --ax-orbit-time: 9s; }
+.core-state-thinking .ax-nodes { animation-duration: 7s; }
+.core-state-thinking .ax-shell { animation-duration: 2.6s; }
+.core-state-speaking { --ax-cyan: #59f5ff; --ax-blue: #287cff; --ax-amber: #ffb454; --ax-warm-opacity: .95; --ax-wave-opacity: 1; --ax-orbit-time: 18s; }
+.core-state-speaking .ax-nucleus { animation: ax-heartbeat 1.8s ease-in-out infinite; }
+.core-state-speaking .ax-waves { animation-duration: 1.8s; }
+.ax-core-sm .ax-dust, .ax-core-sm .ax-waves { display: none; }
+.axion-welcome { gap: 14px; padding-block: 20px; }
+.axion-welcome-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; }
+.axion-welcome-actions > button { min-height: 44px; padding: 10px 14px; display: flex; flex-direction: row; align-items: center; gap: 10px; }
+.axion-welcome-actions > button > div:first-child { width: auto; }
+.axion-welcome-actions > button > div:first-child > svg:last-child,
+.axion-welcome-actions > button > div:last-child > div:last-child { display: none; }
+.axion-welcome-actions > button > div:last-child { margin-top: 0; }
+@keyframes ax-orbit { to { transform: rotate(360deg); } }
+@keyframes ax-breathe { 0%,100% { transform: scale(.98); opacity: .9; } 50% { transform: scale(1.025); opacity: 1; } }
+@keyframes ax-inward { 0%,100% { transform: scale(1.025); } 60% { transform: scale(.99); } }
+@keyframes ax-heartbeat { 0%,100% { opacity: .65; transform: scale(.94); } 45%,65% { opacity: 1; transform: scale(1.08); } }
+@keyframes ax-atmosphere { 0%,100% { opacity: .65; } 50% { opacity: 1; } }
+@keyframes ax-stream-drift { from { transform: rotate(-7deg); } to { transform: rotate(8deg); } }
+@keyframes ax-wave { from { transform: scaleY(.93); } to { transform: scaleY(1.035); } }
+@media (max-width: 1023px) {
+  .ax-core-hero { width: min(82vw, 36svh, 350px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .axion-living-core *, .axion-living-core svg * { animation: none !important; transition: none !important; }
+  .axion-living-core .ax-input-response, .axion-living-core .ax-wave-response { transform: none !important; }
+}
+
+.ax-core-welcome.core-state-idle { --ax-warm-opacity: .48; }
+.ax-core-welcome .ax-nucleus { opacity: 0; animation: none; }
+.ax-wordmark { paint-order: stroke; stroke: #031022; stroke-width: 3px; }
+.ax-iris { transform-origin: 0 0; animation: ax-orbit 42s linear infinite reverse; }
+.ax-lensing { transform-origin: 0 0; animation: ax-stream-drift 11s ease-in-out infinite alternate; }
+.ax-horizon { animation: ax-atmosphere 6.7s ease-in-out infinite; }
+.ax-core-sm .ax-horizon, .ax-core-sm .ax-iris { display: none; }
+.core-state-thinking .ax-iris { animation-duration: 12s; }
+
+/* Layered decorative motion stays independent of microphone/TTS state data. */
+.ax-corona, .ax-filaments, .ax-calipers { transform-origin: 0 0; }
+.ax-corona { animation: ax-corona-drift 13s ease-in-out infinite alternate; }
+.ax-filaments { animation: ax-orbit 38s linear infinite reverse; }
+.ax-calipers { animation: ax-caliper-spin 54s linear infinite; }
+.ax-current-field { animation: ax-stream-drift 19s ease-in-out infinite alternate; transform-origin: 0 0; }
+.ax-current { animation: ax-current-travel 5.8s linear infinite; }
+.ax-current-reverse { animation-duration: 8.4s; animation-direction: reverse; }
+.ax-current-warm { animation-duration: 7.3s; animation-delay: -3.1s; }
+.ax-spark { animation: ax-spark-glow 4.7s ease-in-out infinite; }
+.ax-wave-strand { transform-box: fill-box; transform-origin: center bottom; animation: ax-strand-breathe 3.8s ease-in-out infinite; }
+
+.core-state-thinking .ax-filaments { animation-duration: 15s; }
+.core-state-thinking .ax-calipers { animation-duration: 12s; }
+.core-state-thinking .ax-current { animation-duration: 2.8s; }
+.core-state-listening .ax-calipers { animation-duration: 22s; animation-direction: reverse; }
+.core-state-listening .ax-wave-strand { animation-duration: 2.4s; }
+.core-state-speaking .ax-calipers { animation-duration: 18s; }
+.core-state-speaking .ax-wave-strand { animation-duration: 1.6s; }
+.ax-core-sm .ax-current-field, .ax-core-sm .ax-corona, .ax-core-sm .ax-calipers { display: none; }
+
+@keyframes ax-caliper-spin { to { transform: rotate(360deg); } }
+@keyframes ax-current-travel { to { stroke-dashoffset: -100; } }
+@keyframes ax-corona-drift { from { opacity: .55; transform: rotate(-12deg) scale(.96); } to { opacity: 1; transform: rotate(16deg) scale(1.06); } }
+@keyframes ax-spark-glow { 0%,100% { opacity: .25; } 45% { opacity: .95; } }
+@keyframes ax-strand-breathe { 0%,100% { transform: scaleY(.72); opacity: .55; } 50% { transform: scaleY(1); opacity: 1; } }
+
+/* Size against actual chat space, including a resized bottom terminal. */
+@supports (container-type: size) {
+  .axion-chat { container-type: size; }
+  .axion-chat .ax-core-welcome { width: clamp(220px, calc(100cqh - 350px), 460px); }
+}
+.axion-welcome { justify-content: safe center; }
+.axion-welcome > * { flex-shrink: 0; }
+/* Reserve a real right rail; the Core never overlaps active messages. */
+@container (min-width: 1120px) {
+  .axion-active-messages { width: calc(100% - 280px); margin-right: 280px; }
+}

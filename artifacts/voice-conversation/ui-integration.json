@@ -1,0 +1,12 @@
+{
+  "checks": [
+    "Gemini key form stores session configuration without claiming verified connection",
+    "Configured Gemini key is used by actual voice prompt path",
+    "One prompt makes one intercepted provider request",
+    "One completed reply triggers one device speech call",
+    "Reply stays visible after speech ends"
+  ],
+  "providerRequests": 1,
+  "deviceSpeechCalls": 1,
+  "note": "Explicit intercepted provider and synthetic speech fixture; no real cloud request or audible output."
+}

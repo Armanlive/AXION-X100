@@ -1,0 +1,200 @@
+[
+  {
+    "id": "gemini",
+    "name": "Google Gemini",
+    "dashboard": "https://aistudio.google.com/apikey",
+    "modelsEndpoint": "https://generativelanguage.googleapis.com/v1beta/models",
+    "tags": [
+      "multimodal",
+      "free-tier"
+    ],
+    "catalogOnly": false
+  },
+  {
+    "id": "openrouter",
+    "name": "OpenRouter",
+    "dashboard": "https://openrouter.ai/settings/keys",
+    "modelsEndpoint": "https://openrouter.ai/api/v1/models",
+    "tags": [
+      "gateway",
+      "free/paid"
+    ],
+    "catalogOnly": false
+  },
+  {
+    "id": "groq",
+    "name": "Groq",
+    "dashboard": "https://console.groq.com/keys",
+    "modelsEndpoint": "https://api.groq.com/openai/v1/models",
+    "tags": [
+      "low-latency",
+      "free-tier"
+    ],
+    "catalogOnly": false
+  },
+  {
+    "id": "cloudflare",
+    "name": "Cloudflare",
+    "dashboard": "https://dash.cloudflare.com/profile/apikeys",
+    "modelsEndpoint": null,
+    "tags": [
+      "workers-ai",
+      "free-tier"
+    ],
+    "catalogOnly": false
+  },
+  {
+    "id": "nvidia",
+    "name": "NVIDIA NIM",
+    "dashboard": "https://build.nvidia.com/",
+    "modelsEndpoint": "https://integrate.api.nvidia.com/v1/models",
+    "tags": [
+      "inference",
+      "credits"
+    ],
+    "catalogOnly": false
+  },
+  {
+    "id": "ollama",
+    "name": "Ollama",
+    "dashboard": "https://ollama.com/download",
+    "modelsEndpoint": "http://127.0.0.1:11434/api/tags",
+    "tags": [
+      "local",
+      "free"
+    ],
+    "catalogOnly": false
+  },
+  {
+    "id": "fishaudio",
+    "name": "Fish Audio",
+    "dashboard": "https://fish.audio/app/api-keys/",
+    "modelsEndpoint": null,
+    "tags": [
+      "speech",
+      "paid"
+    ],
+    "catalogOnly": false
+  },
+  {
+    "id": "anthropic",
+    "name": "Anthropic Claude",
+    "dashboard": "https://console.anthropic.com/",
+    "modelsEndpoint": "https://api.anthropic.com/v1/models",
+    "tags": [
+      "reasoning",
+      "vision",
+      "paid"
+    ],
+    "catalogOnly": false
+  },
+  {
+    "id": "openai",
+    "name": "OpenAI",
+    "dashboard": "https://platform.openai.com/api-keys",
+    "modelsEndpoint": "https://api.openai.com/v1/models",
+    "tags": [
+      "reasoning",
+      "coding",
+      "vision",
+      "paid"
+    ],
+    "catalogOnly": false
+  },
+  {
+    "id": "deepseek",
+    "name": "DeepSeek",
+    "dashboard": "https://platform.deepseek.com/api_keys",
+    "modelsEndpoint": "https://api.deepseek.com/models",
+    "tags": [
+      "reasoning",
+      "coding",
+      "paid"
+    ],
+    "catalogOnly": false
+  },
+  {
+    "id": "mistral",
+    "name": "Mistral AI",
+    "dashboard": "https://console.mistral.ai/",
+    "modelsEndpoint": "https://api.mistral.ai/v1/models",
+    "tags": [
+      "coding",
+      "vision",
+      "paid"
+    ],
+    "catalogOnly": false
+  },
+  {
+    "id": "cohere",
+    "name": "Cohere",
+    "dashboard": "https://dashboard.cohere.com/api-keys",
+    "modelsEndpoint": "https://api.cohere.com/v1/models",
+    "tags": [
+      "retrieval",
+      "enterprise",
+      "paid"
+    ],
+    "catalogOnly": false
+  },
+  {
+    "id": "huggingface",
+    "name": "HuggingFace Router",
+    "dashboard": "https://huggingface.co/settings/tokens",
+    "modelsEndpoint": "https://router.huggingface.co/v1/models",
+    "tags": [
+      "gateway",
+      "open-models",
+      "metered"
+    ],
+    "catalogOnly": false
+  },
+  {
+    "id": "together",
+    "name": "Together AI",
+    "dashboard": "https://api.together.ai/settings/api-keys",
+    "modelsEndpoint": "https://api.together.xyz/v1/models",
+    "tags": [
+      "open-models",
+      "inference",
+      "paid"
+    ],
+    "catalogOnly": false
+  },
+  {
+    "id": "perplexity",
+    "name": "Perplexity",
+    "dashboard": "https://www.perplexity.ai/settings/api",
+    "modelsEndpoint": null,
+    "tags": [
+      "search",
+      "research",
+      "paid"
+    ],
+    "catalogOnly": false
+  },
+  {
+    "id": "replicate",
+    "name": "Replicate",
+    "dashboard": "https://replicate.com/account/api-tokens",
+    "modelsEndpoint": "https://api.replicate.com/v1/models",
+    "tags": [
+      "multimodal",
+      "async-inference",
+      "paid"
+    ],
+    "catalogOnly": false
+  },
+  {
+    "id": "fireworks",
+    "name": "Fireworks AI",
+    "dashboard": "https://fireworks.ai/account/api-keys",
+    "modelsEndpoint": "https://api.fireworks.ai/inference/v1/models",
+    "tags": [
+      "open-models",
+      "inference",
+      "paid"
+    ],
+    "catalogOnly": false
+  }
+]

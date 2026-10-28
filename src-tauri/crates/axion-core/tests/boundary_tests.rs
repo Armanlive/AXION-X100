@@ -1,4 +1,4 @@
-use axion_core::workspace::{WorkspaceError, WorkspaceManager};
+use axion_core::workspace::{display_root, WorkspaceError, WorkspaceManager};
 use std::fs::{self, File};
 use std::io::Write;
 use tempfile::tempdir;
@@ -14,7 +14,7 @@ fn test_integration_valid_file_inside_workspace() {
 
     let mut mgr = WorkspaceManager::new();
     let info = mgr.set_workspace_root(&root).expect("Set workspace failed");
-    assert_eq!(info.canonical_root, root.to_string_lossy());
+    assert_eq!(info.canonical_root, display_root(&root));
 
     let resolved = mgr
         .resolve_and_validate_path("app.config.json")

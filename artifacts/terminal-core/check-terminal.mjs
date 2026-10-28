@@ -1,0 +1,30 @@
+import { chromium } from 'file:///C:/Users/ADMIN/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs';
+import assert from 'node:assert/strict';
+import {writeFile} from 'node:fs/promises';
+const browser=await chromium.launch({channel:'msedge',headless:true});
+const context=await browser.newContext({viewport:{width:1920,height:1031},recordVideo:{dir:'artifacts/terminal-core/video',size:{width:1920,height:1031}}});
+const page=await context.newPage();const errors=[];page.on('pageerror',e=>errors.push(e.message));
+await page.goto('http://127.0.0.1:3000');await page.waitForTimeout(6000);
+await page.getByRole('button',{name:'Terminal',exact:true}).click();
+await page.getByText('Local terminal requires the desktop app',{exact:true}).waitFor({timeout:5000});
+await page.screenshot({path:'artifacts/terminal-core/terminal-browser.png',fullPage:true});
+const result=await page.evaluate(async()=>{
+ const api=await import('/src/utils/nativeTerminal.ts');const {mockIPC,clearMocks}=await import('/node_modules/@tauri-apps/api/mocks.js');
+ const checks=[];function check(value,label){if(!value)throw Error(label);checks.push(label)}
+ await api.openPty('browser-test','powershell');check(api.getPty('browser-test').status==='error','Browser shell opening is blocked');await api.closePty('browser-test');
+ const calls=[];let channel;let failWrite=false;let opened=0;globalThis.isTauri=true;
+ mockIPC(async(cmd,args)=>{calls.push({cmd,args});if(cmd==='terminal_open'){channel=args.output;return {id:`fixture-${++opened}`,cwd:'E:\\fixture'}}if(cmd==='terminal_write'){await new Promise(r=>setTimeout(r,5));if(failWrite)throw Error('fixture write failure')}});
+ const host=document.createElement('div');host.style.cssText='width:800px;height:300px';document.body.append(host);let detach=api.mountPty('fixture',host);await api.openPty('fixture','powershell');
+ check(api.getPty('fixture').status==='running','Successful IPC open sets shell state');
+ const paste='x'.repeat(8191)+'🔥'+'y'.repeat(9000);await Promise.all([api.sendPty('fixture',paste),api.sendPty('fixture','NEXT')]);
+ const writes=calls.filter(c=>c.cmd==='terminal_write').map(c=>c.args.data);check(writes.join('')===paste+'NEXT','Large Unicode paste remains ordered before later input');check(writes.every(s=>!/[\uD800-\uDBFF]$/.test(s)),'IPC chunks do not split surrogate pairs');
+ channel.onmessage({kind:'data',bytes:Array.from(new TextEncoder().encode('\x1b[32mIPC fixture output\x1b[0m\r\n'))});await new Promise(r=>setTimeout(r,100));
+ check(calls.some(c=>c.cmd==='terminal_ack'),'Rendered output acknowledges flow-control bytes');
+ detach();check(api.getPty('fixture').status==='running','Hiding terminal preserves session');detach=api.mountPty('fixture',host);check(opened===1,'Remount does not spawn another shell');
+ failWrite=true;try{await api.sendPty('fixture','fail')}catch{}channel.onmessage({kind:'error',message:'fixture failure'});failWrite=false;await api.openPty('fixture','powershell');await api.sendPty('fixture','restart');check(opened===2,'Restart resets failed stdin queue');
+ channel.onmessage({kind:'exit',code:7});check(api.getPty('fixture').message.includes('7'),'Shell exit status comes from IPC');
+ await api.closePty('fixture');check(calls.some(c=>c.cmd==='terminal_close'),'Closing requests native process cleanup');detach();host.remove();clearMocks();delete globalThis.isTauri;
+ return {checks,note:'IPC test adapter only. No real native shell was started.'};
+});
+assert.deepEqual(errors,[]);await writeFile('artifacts/terminal-core/terminal-checks.json',JSON.stringify({errors,...result},null,2));
+await context.close();await page.video().saveAs('artifacts/terminal-core/core-motion.webm');await browser.close();console.log(result);

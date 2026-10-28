@@ -56,7 +56,7 @@ export function normalizeVoiceInput(input: string): NormalizationResult {
 
   // 1. Direct dictionary match
   for (const [key, mapping] of Object.entries(HINGLISH_DICTIONARY)) {
-    if (lower.includes(key) || key.includes(lower)) {
+    if (lower === key || (lower.length >= 12 && lower.includes(key))) {
       const isHindi = /[\u0900-\u097F]/.test(trimmed);
       const isHinglish = /(bhai|karo|kar de|daal do|chhota|banao|mera|mere|hai|ka|ki|ko)/i.test(trimmed);
       return {
@@ -90,10 +90,10 @@ export function normalizeVoiceInput(input: string): NormalizationResult {
 
     return {
       original: trimmed,
-      normalizedEnglish: `Execute technical request: ${converted.charAt(0).toUpperCase() + converted.slice(1)}`,
+      normalizedEnglish: trimmed,
       language: isHindiScript ? 'hi' : 'hi-hinglish',
-      actionType: 'modify_ui',
-      confidence: 0.88
+      actionType: 'general_task',
+      confidence: 0.5
     };
   }
 
@@ -149,7 +149,7 @@ export function detectSpokenCommand(input: string): SpokenCommandResult {
     return {
       isCommand: true,
       commandType: 'OPEN_TERMINAL',
-      confirmationSpeech: 'Terminal open kar diya hai.'
+      confirmationSpeech: 'Terminal access open kar diya hai, Sir.'
     };
   }
 
@@ -163,7 +163,7 @@ export function detectSpokenCommand(input: string): SpokenCommandResult {
     return {
       isCommand: true,
       commandType: 'OPEN_PREVIEW',
-      confirmationSpeech: 'Application preview open kar raha hoon.'
+      confirmationSpeech: 'Preview window open kar raha hoon, Sir.'
     };
   }
 
@@ -175,7 +175,7 @@ export function detectSpokenCommand(input: string): SpokenCommandResult {
     return {
       isCommand: true,
       commandType: 'OPEN_WORKSPACE',
-      confirmationSpeech: 'Local workspace inspect kar raha hoon.'
+      confirmationSpeech: 'Workspace open kar raha hoon, Sir.'
     };
   }
 
@@ -187,7 +187,7 @@ export function detectSpokenCommand(input: string): SpokenCommandResult {
     return {
       isCommand: true,
       commandType: 'OPEN_AGENT_LAB',
-      confirmationSpeech: '100 Specialist Agent Lab open kar raha hoon.'
+      confirmationSpeech: 'Agent Lab open kar raha hoon, Sir.'
     };
   }
 
@@ -199,7 +199,7 @@ export function detectSpokenCommand(input: string): SpokenCommandResult {
     return {
       isCommand: true,
       commandType: 'OPEN_CLOUD_BRAIN',
-      confirmationSpeech: 'Cloud Brain compute intelligence open kar raha hoon.'
+      confirmationSpeech: 'Cloud Brain open kar raha hoon, Sir.'
     };
   }
 
@@ -216,7 +216,7 @@ export function prepareTextForSpeech(text: string): string {
   let clean = text;
 
   // Replace full code fences with natural verbal summary
-  clean = clean.replace(/```[a-z]*\n[\s\S]*?\n```/gi, ' Code update ready in your workspace. ');
+  clean = clean.replace(/```[a-z]*\n[\s\S]*?\n```/gi, ' Code snippet is in the chat. ');
   clean = clean.replace(/```[\s\S]*?```/g, ' Code snippet provided. ');
 
   // Replace inline backtick code snippets
@@ -251,7 +251,7 @@ export function prepareTextForSpeech(text: string): string {
     if (periodIdx !== -1 && periodIdx < 400) {
       clean = clean.slice(0, periodIdx + 1);
     } else {
-      clean = clean.slice(0, 320) + '... Detailed technical plan written in your chat.';
+      clean = clean.slice(0, 320) + '... Full details are in your chat, Sir.';
     }
   }
 

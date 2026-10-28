@@ -1,0 +1,62 @@
+{
+  "errors": [],
+  "sizes": [
+    {
+      "width": 1440,
+      "height": 900,
+      "core": {
+        "x": 610,
+        "y": 91.25,
+        "width": 460,
+        "height": 460
+      }
+    },
+    {
+      "width": 1280,
+      "height": 720,
+      "core": {
+        "x": 597,
+        "y": 68.25,
+        "width": 326,
+        "height": 326
+      }
+    },
+    {
+      "width": 360,
+      "height": 800,
+      "core": {
+        "x": 36,
+        "y": 183.75,
+        "width": 288,
+        "height": 288
+      }
+    },
+    {
+      "width": 404,
+      "height": 756,
+      "core": {
+        "x": 65.921875,
+        "y": 169.671875,
+        "width": 272.15625,
+        "height": 272.15625
+      }
+    },
+    {
+      "width": 430,
+      "height": 932,
+      "core": {
+        "x": 47.234375,
+        "y": 225.984375,
+        "width": 335.515625,
+        "height": 335.515625
+      }
+    }
+  ],
+  "checks": [
+    "Unique SVG definition IDs across four simultaneous instances",
+    "Reduced motion disables all Core CSS animations",
+    "Mobile Core stays within viewport",
+    "Desktop hero stays below header and above title"
+  ],
+  "note": "State montage is a component fixture, not proof of microphone or TTS runtime."
+}

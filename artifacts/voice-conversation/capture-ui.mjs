@@ -1,0 +1,10 @@
+import {chromium} from 'file:///C:/Users/ADMIN/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright/index.mjs';
+import {writeFile} from 'node:fs/promises';import assert from 'node:assert/strict';
+const browser=await chromium.launch({channel:'msedge',headless:true});const page=await browser.newPage({viewport:{width:1440,height:1000}});const errors=[];page.on('pageerror',e=>errors.push(e.message));await page.goto('http://127.0.0.1:3000');
+await page.getByRole('button',{name:'Voice',exact:true}).click();await page.getByLabel('Talk mode').waitFor();await page.getByLabel('Talk mode').selectOption('wake-word');await page.waitForTimeout(800);
+await page.screenshot({path:'artifacts/voice-conversation/desktop-voice.png',fullPage:true});
+await page.getByTitle('Voice & Language Settings').click();await page.getByLabel('Device voice').waitFor();await page.screenshot({path:'artifacts/voice-conversation/device-voices.png',fullPage:true});
+const voices=await page.evaluate(()=>window.speechSynthesis.getVoices().map(v=>({name:v.name,language:v.lang,local:v.localService})));
+await page.getByLabel('Close voice settings').click();await page.setViewportSize({width:390,height:844});await page.getByRole('button',{name:'Voice Tab',exact:true}).click();await page.getByLabel('Talk mode').waitFor();await page.getByLabel('Talk mode').selectOption('wake-word');await page.waitForTimeout(500);await page.screenshot({path:'artifacts/voice-conversation/mobile-voice.png',fullPage:true});
+assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth));assert.deepEqual(errors,[]);
+await writeFile('artifacts/voice-conversation/device-inventory.json',JSON.stringify({voices,errors,note:'Voices reported by the real browser; no speech audio quality evaluation and no microphone session performed.'},null,2));console.log(JSON.stringify({voices:voices.filter(v=>v.local),errors},null,2));await browser.close();

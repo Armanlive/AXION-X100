@@ -38,3 +38,16 @@ src-tauri/gen/
 *.sw?
 .DS_Store
 Thumbs.db
+
+# Temporary files and logs
+tmp/
+*.log
+
+# Database and local state
+*.db
+*.sqlite
+.freebuff/
+.claude-flow/graph/
+.claude-flow/data/
+.claude-flow/logs/
+.claude-flow/sessions/

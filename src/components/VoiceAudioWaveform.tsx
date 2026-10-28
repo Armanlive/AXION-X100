@@ -9,60 +9,60 @@ interface VoiceAudioWaveformProps {
 export const VoiceAudioWaveform: React.FC<VoiceAudioWaveformProps> = ({ isActive, state }) => {
   if (!isActive && (state === 'ready' || state === 'idle')) return null;
 
-  // Bar count: compact 7 bars
-  const bars = [14, 24, 38, 20, 32, 18, 12];
+  // Bar count: 9 dynamic acoustic bars
+  const bars = [12, 18, 28, 42, 26, 36, 20, 16, 10];
 
   const getBarColor = () => {
     switch (state) {
       case 'listening':
-        return 'bg-red-500';
+        return 'bg-[#00f0ff] shadow-[0_0_8px_#00f0ff]';
       case 'parsing':
       case 'understanding':
-        return 'bg-amber-400';
+        return 'bg-[#38bdf8] shadow-[0_0_6px_#38bdf8]';
       case 'working':
       case 'thinking':
-        return 'bg-blue-400';
+        return 'bg-sky-400 shadow-[0_0_8px_rgba(56,189,248,0.8)]';
       case 'speaking':
-        return 'bg-emerald-400';
+        return 'bg-[#00f0ff] shadow-[0_0_10px_#00f0ff]';
       default:
-        return 'bg-zinc-500';
+        return 'bg-cyan-500/60';
     }
   };
 
   const getStateLabel = () => {
     switch (state) {
       case 'listening':
-        return 'Listening (Hinglish/EN)...';
+        return 'LISTENING...';
       case 'understanding':
       case 'parsing':
-        return 'Parsing intent...';
+        return 'UNDERSTANDING...';
       case 'thinking':
       case 'working':
-        return 'Synthesizing patch...';
+        return 'THINKING...';
       case 'speaking':
-        return 'Speaking...';
+        return 'SPEAKING...';
       default:
-        return 'Ready';
+        return 'AXION READY';
     }
   };
 
   return (
-    <div className="flex items-center gap-2 px-2.5 py-1 rounded-full bg-zinc-900 border border-zinc-800 text-xs font-mono animate-in fade-in duration-200">
-      <div className="flex items-center gap-0.5 h-4">
+    <div className="flex items-center gap-2.5 px-3 py-1.5 rounded-full bg-[#070d1c]/90 border border-cyan-500/35 text-xs font-mono shadow-[0_0_20px_rgba(0,240,255,0.2)] backdrop-blur-md animate-in fade-in duration-200">
+      <div className="flex items-center gap-1 h-5">
         {bars.map((height, i) => (
           <div
             key={i}
-            className={`w-[2px] rounded-full transition-all duration-150 ${getBarColor()}`}
+            className={`w-[2.5px] rounded-full transition-all duration-150 ${getBarColor()}`}
             style={{
               height: isActive
-                ? `${Math.max(4, height * (0.4 + (i % 3) * 0.3))}px`
-                : '3px',
-              animation: isActive ? `pulse 0.8s ease-in-out infinite alternate ${i * 0.1}s` : 'none'
+                ? `${Math.max(4, height * (0.35 + (i % 4) * 0.22))}px`
+                : '4px',
+              animation: isActive ? `pulse 0.75s ease-in-out infinite alternate ${i * 0.08}s` : 'none'
             }}
           />
         ))}
       </div>
-      <span className="text-[11px] text-zinc-300 font-medium whitespace-nowrap">
+      <span className="text-[10px] text-cyan-200 font-bold tracking-wider whitespace-nowrap">
         {getStateLabel()}
       </span>
     </div>

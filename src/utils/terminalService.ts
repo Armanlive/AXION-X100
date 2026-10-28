@@ -189,63 +189,9 @@ export interface ShellProfile {
 }
 
 export const AVAILABLE_SHELL_PROFILES: ShellProfile[] = [
-  {
-    id: 'powershell',
-    name: 'PowerShell',
-    shellType: 'powershell',
-    executable: 'powershell.exe',
-    promptPrefix: 'PS',
-    iconName: 'Terminal',
-    isDefault: true
-  },
-  {
-    id: 'cmd',
-    name: 'Command Prompt',
-    shellType: 'cmd',
-    executable: 'cmd.exe',
-    promptPrefix: '',
-    iconName: 'Terminal'
-  },
-  {
-    id: 'git-bash',
-    name: 'Git Bash',
-    shellType: 'git-bash',
-    executable: 'bash.exe',
-    promptPrefix: '$',
-    iconName: 'Terminal'
-  },
-  {
-    id: 'wsl',
-    name: 'WSL (Ubuntu)',
-    shellType: 'wsl',
-    executable: 'wsl.exe',
-    promptPrefix: '$',
-    iconName: 'Terminal'
-  },
-  {
-    id: 'opencode',
-    name: 'OpenCode CLI',
-    shellType: 'opencode',
-    executable: 'opencode',
-    promptPrefix: 'opencode>',
-    iconName: 'Sparkles'
-  },
-  {
-    id: 'gemini-cli',
-    name: 'Gemini CLI Agent',
-    shellType: 'gemini-cli',
-    executable: 'gemini',
-    promptPrefix: 'gemini>',
-    iconName: 'Sparkles'
-  },
-  {
-    id: 'bash',
-    name: 'Linux / Web Shell',
-    shellType: 'bash',
-    executable: '/bin/bash',
-    promptPrefix: '$',
-    iconName: 'Terminal'
-  }
+  { id: 'powershell', name: 'PowerShell (Windows)', shellType: 'powershell', executable: 'powershell.exe', promptPrefix: 'PS', iconName: 'Terminal', isDefault: true },
+  { id: 'cmd', name: 'Command Prompt (Windows)', shellType: 'cmd', executable: 'cmd.exe', promptPrefix: '', iconName: 'Terminal' },
+  { id: 'bash', name: 'Bash (Linux/macOS)', shellType: 'bash', executable: '/bin/bash', promptPrefix: '$', iconName: 'Terminal' }
 ];
 
 /**

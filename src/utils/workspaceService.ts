@@ -1,4 +1,4 @@
-import { ActiveWorkspace, ProjectFileEntry, WorkspaceInfo } from '../types';
+import type { ActiveWorkspace, ProjectFileEntry, WorkspaceInfo } from '../types';
 
 export const STORAGE_KEY_ACTIVE_WORKSPACE = 'axion_active_workspace_v2';
 export const STORAGE_KEY_RECENT_WORKSPACES = 'axion_recent_workspaces_v2';
@@ -549,7 +549,8 @@ export async function readWorkspaceFileDirect(
 export async function writeWorkspaceFileDirect(
   workspace: ActiveWorkspace,
   relativePath: string,
-  newContent: string
+  newContent: string,
+  expectedContent?: string
 ): Promise<{ success: boolean; verifiedContent: string; error?: string }> {
   const resolvedTarget = resolveWorkspacePath(workspace.absolutePath, relativePath);
   if (!assertInsideWorkspace(workspace.absolutePath, resolvedTarget)) {
@@ -560,26 +561,17 @@ export async function writeWorkspaceFileDirect(
     };
   }
 
-  // 1. Tauri Native Write
-  if (typeof window !== 'undefined' && (window as any).__TAURI__) {
+  // 1. Desktop app: the native workspace boundary writes and re-reads the file. There is
+  // no fs plugin, so this must never fall through to the in-memory "success" below.
+  const { invoke, isTauri } = await import('@tauri-apps/api/core');
+  if (isTauri()) {
     try {
-      const fs = (window as any).__TAURI__.fs || (window as any).__TAURI_PLUGIN_FS__;
-      if (fs && (fs.writeTextFile || fs.writeFile)) {
-        if (fs.writeTextFile) {
-          await fs.writeTextFile(resolvedTarget, newContent);
-        } else {
-          await fs.writeFile(resolvedTarget, new TextEncoder().encode(newContent));
-        }
-
-        // Read-back verification
-        const verified = await (fs.readTextFile ? fs.readTextFile(resolvedTarget) : fs.readFile(resolvedTarget, { encoding: 'utf8' }));
-        if (verified === newContent) {
-          return { success: true, verifiedContent: verified };
-        }
-      }
+      const verified = await invoke<string>('write_workspace_text_file', { relativePath: normalizePath(relativePath), content: newContent, expectedRoot: workspace.absolutePath, expectedContent: expectedContent ?? null });
+      return verified === newContent
+        ? { success: true, verifiedContent: verified }
+        : { success: false, verifiedContent: verified, error: 'Written file did not match on read-back' };
     } catch (err: any) {
-      console.warn('Tauri fs writeTextFile failed, attempting fallback', err);
-      return { success: false, verifiedContent: '', error: err.message || 'Tauri native write failed' };
+      return { success: false, verifiedContent: '', error: typeof err === 'string' ? err : err?.message || 'Native write failed' };
     }
   }
 
@@ -595,6 +587,9 @@ export async function writeWorkspaceFileDirect(
 
       const fileName = segments[segments.length - 1];
       const fileHandle = await currentHandle.getFileHandle(fileName, { create: true });
+      if (expectedContent !== undefined && await (await fileHandle.getFile()).text() !== expectedContent) {
+        return {success:false, verifiedContent:'', error:'File changed since this proposal. Generate a fresh diff before saving.'};
+      }
       const writable = await fileHandle.createWritable();
       await writable.write(newContent);
       await writable.close();
@@ -602,16 +597,15 @@ export async function writeWorkspaceFileDirect(
       // Read-back verification
       const file = await fileHandle.getFile();
       const verified = await file.text();
-      return { success: true, verifiedContent: verified };
+      return { success: verified === newContent, verifiedContent: verified,
+        ...(verified !== newContent ? { error: 'Written file did not match on read-back' } : {}) };
     } catch (err: any) {
       console.warn('Browser directory handle write error:', err);
-      // In web fallback, return memory verified
-      return { success: true, verifiedContent: newContent };
+      return { success: false, verifiedContent: '', error: err?.message || 'Browser file write failed' };
     }
   }
 
-  // 3. Web sandbox in-memory simulated write
-  return { success: true, verifiedContent: newContent };
+  return { success: false, verifiedContent: '', error: 'No writable workspace is connected. The proposed change has not been saved.' };
 }
 
 /**
@@ -660,6 +654,10 @@ export async function createWorkspaceFolderDirect(
       return { success: false, error: e.message };
     }
   }
+  // The desktop app has no fs plugin: report it instead of a fake success.
+  if ((await import('@tauri-apps/api/core')).isTauri()) {
+    return { success: false, error: 'Creating folders from here is not supported in the desktop app yet. Approve a file change inside the new folder instead.' };
+  }
 
   if (workspace.dirHandle) {
     try {
@@ -702,6 +700,10 @@ export async function deleteWorkspaceFileOrFolderDirect(
     } catch (e: any) {
       return { success: false, error: e.message };
     }
+  }
+  // The desktop app has no fs plugin: never report a delete that did not happen.
+  if ((await import('@tauri-apps/api/core')).isTauri()) {
+    return { success: false, error: 'Deleting from here is not supported in the desktop app yet. Use File Explorer.' };
   }
 
   if (workspace.dirHandle) {

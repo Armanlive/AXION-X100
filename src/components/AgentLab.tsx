@@ -102,22 +102,22 @@ export const AgentLab: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#0b0b0c] text-zinc-100 overflow-hidden select-none">
+    <div className="flex-1 flex flex-col h-full bg-[#050508] cyber-grid-bg text-cyan-100 overflow-hidden select-none">
       {/* Top Header */}
-      <div className="p-6 bg-[#0e0e11] border-b border-zinc-800/80 shrink-0">
+      <div className="p-6 bg-[#080d1a]/80 border-b border-cyan-500/20 backdrop-blur-md shrink-0">
         <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 text-xs font-mono text-zinc-400 uppercase tracking-widest mb-1">
-              <Users className="w-3.5 h-3.5 text-zinc-400" />
-              <span>SPECIALISTS REGISTRY</span>
+            <div className="flex items-center gap-2 text-xs font-mono text-[#00f0ff] uppercase tracking-widest mb-1">
+              <Users className="w-3.5 h-3.5 text-[#00f0ff] animate-pulse" />
+              <span>SPECIALISTS REGISTRY // QUANTUM CORE</span>
             </div>
-            <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-3">
-              <span>100 SPECIALISTS</span>
-              <span className="text-xs px-2.5 py-0.5 rounded-full font-mono font-medium bg-zinc-800 text-zinc-300 border border-zinc-700">
+            <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-3 font-mono">
+              <span className="text-[#00f0ff] uppercase tracking-wider">100 SPECIALISTS</span>
+              <span className="text-xs px-2.5 py-0.5 rounded-full font-mono font-medium bg-cyan-950/60 text-cyan-300 border border-cyan-500/30">
                 {agents.length} Total Registered
               </span>
             </h1>
-            <p className="text-xs text-zinc-400 mt-1 max-w-xl leading-relaxed">
+            <p className="text-xs text-cyan-200/60 mt-1 max-w-xl leading-relaxed font-mono">
               Autonomous and manual specialist agents for full-stack engineering, security audits, diff verification, and system architecture.
             </p>
           </div>
@@ -125,20 +125,20 @@ export const AgentLab: React.FC = () => {
           <div className="flex items-center gap-3">
             {/* Search Input */}
             <div className="relative">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-zinc-500" />
+              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-cyan-400/60" />
               <input
                 type="text"
                 value={searchFilter}
                 onChange={(e) => setSearchFilter(e.target.value)}
                 placeholder="Search specialists, tags, roles..."
-                className="w-56 sm:w-64 pl-9 pr-3 py-1.5 rounded-lg bg-zinc-900 border border-zinc-750 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-500 font-sans"
+                className="w-56 sm:w-64 pl-9 pr-3 py-1.5 rounded-lg bg-[#050508]/80 border border-cyan-500/30 text-xs text-white placeholder-cyan-500/40 focus:outline-none focus:border-[#00f0ff] focus:ring-1 focus:ring-[#00f0ff]/50 font-mono"
               />
             </div>
 
             {/* Create Custom Agent Button */}
             <button
               onClick={() => setIsCreateModalOpen(true)}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-zinc-100 hover:bg-white text-zinc-950 text-xs font-semibold shadow-sm transition"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-[#00f0ff] hover:bg-[#38bdf8] text-[#050508] text-xs font-mono font-bold shadow-[0_0_15px_rgba(0,240,255,0.4)] transition"
             >
               <Plus className="w-3.5 h-3.5" />
               <span>Create Custom Agent</span>
@@ -164,12 +164,12 @@ export const AgentLab: React.FC = () => {
                 onClick={() => setSelectedCategory(cat)}
                 className={`px-3 py-1 rounded-lg text-xs font-mono transition shrink-0 flex items-center gap-1.5 border ${
                   isSelected
-                    ? 'bg-zinc-800 text-white font-semibold border-zinc-650 shadow-sm'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-zinc-850/60 border-transparent'
+                    ? 'bg-cyan-500/20 text-[#00f0ff] font-semibold border-cyan-400 shadow-[0_0_10px_rgba(0,240,255,0.2)]'
+                    : 'text-cyan-400/70 hover:text-white hover:bg-cyan-950/40 border-transparent'
                 }`}
               >
                 <span>{cat}</span>
-                <span className="text-[10px] text-zinc-500">({count})</span>
+                <span className="text-[10px] text-cyan-400/50">({count})</span>
               </button>
             );
           })}
@@ -203,61 +203,61 @@ export const AgentLab: React.FC = () => {
                 return (
                   <div
                     key={agent.id}
-                    className={`rounded-2xl border p-4 flex flex-col justify-between transition-all duration-150 relative group ${
+                    className={`rounded-2xl border p-4 flex flex-col justify-between transition-all duration-200 relative group ${
                       isActiveInChat
-                        ? 'bg-[#15151a] border-zinc-600 shadow-lg shadow-black/30 ring-1 ring-zinc-500/30'
-                        : 'bg-[#121215] border-zinc-800/80 hover:border-zinc-700 hover:bg-[#151518]'
+                        ? 'bg-[#080d1a]/95 border-cyan-400 shadow-[0_0_25px_rgba(0,240,255,0.25)] ring-1 ring-[#00f0ff]/40'
+                        : 'bg-[#080d1a]/70 backdrop-blur-md border-cyan-500/20 hover:border-cyan-400/50 hover:bg-[#0c1428] hover:shadow-[0_0_15px_rgba(0,240,255,0.1)]'
                     }`}
                   >
                     <div>
                       {/* Top Meta Row */}
                       <div className="flex items-start justify-between gap-2 mb-3">
                         <div className="flex items-center gap-2.5">
-                          <div className="w-10 h-10 rounded-xl bg-zinc-800 border border-zinc-700/80 flex items-center justify-center text-lg shadow-sm">
+                          <div className="w-10 h-10 rounded-xl bg-cyan-950/60 border border-cyan-500/30 flex items-center justify-center text-lg shadow-sm">
                             {agent.avatar}
                           </div>
                           <div>
                             <div className="flex items-center gap-1.5">
-                              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-zinc-850 text-zinc-400 border border-zinc-750">
+                              <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-cyan-950/80 text-[#00f0ff] border border-cyan-500/30">
                                 {agent.badge}
                               </span>
-                              <span className="text-[10px] font-mono uppercase text-zinc-500">
+                              <span className="text-[10px] font-mono uppercase text-cyan-400/60">
                                 {agent.category}
                               </span>
                             </div>
-                            <h3 className="font-semibold text-xs text-zinc-100 mt-0.5 truncate max-w-[150px]">
+                            <h3 className="font-semibold text-xs text-white mt-0.5 truncate max-w-[150px] font-mono">
                               {agent.name}
                             </h3>
                           </div>
                         </div>
 
                         {isActiveInChat ? (
-                          <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50 shrink-0 mt-1" title="Currently Active in Chat" />
+                          <span className="w-2.5 h-2.5 rounded-full bg-[#00f0ff] shadow-[0_0_8px_#00f0ff] shrink-0 mt-1 animate-pulse" title="Currently Active in Chat" />
                         ) : (
-                          <span className="w-2 h-2 rounded-full bg-zinc-700 shrink-0 mt-1" />
+                          <span className="w-2 h-2 rounded-full bg-cyan-900/60 shrink-0 mt-1" />
                         )}
                       </div>
 
                       {/* Description */}
-                      <p className="text-[11px] text-zinc-400 leading-relaxed line-clamp-3 mb-3">
+                      <p className="text-[11px] text-cyan-200/70 leading-relaxed line-clamp-3 mb-3 font-sans">
                         {agent.description}
                       </p>
 
                       {/* Preferred Model Tag */}
-                      <div className="text-[10px] font-mono text-zinc-500 flex items-center gap-1 mb-4 truncate">
-                        <Cpu className="w-3 h-3 text-zinc-600 shrink-0" />
+                      <div className="text-[10px] font-mono text-cyan-400/60 flex items-center gap-1 mb-4 truncate">
+                        <Cpu className="w-3 h-3 text-[#00f0ff] shrink-0" />
                         <span className="truncate">{agent.preferredModel}</span>
                       </div>
                     </div>
 
                     {/* Bottom Actions */}
-                    <div className="flex items-center gap-2 pt-2 border-t border-zinc-800/60">
+                    <div className="flex items-center gap-2 pt-2 border-t border-cyan-500/20">
                       <button
                         onClick={() => handleChatWithAgent(agent)}
-                        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-xl text-xs font-semibold transition ${
+                        className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 px-3 rounded-xl text-xs font-mono font-semibold transition ${
                           isActiveInChat
-                            ? 'bg-zinc-800 text-white border border-zinc-650'
-                            : 'bg-zinc-850 hover:bg-zinc-800 text-zinc-200 border border-zinc-750 hover:text-white'
+                            ? 'bg-[#00f0ff] text-[#050508] shadow-[0_0_12px_rgba(0,240,255,0.4)]'
+                            : 'bg-[#00f0ff]/10 hover:bg-[#00f0ff]/20 text-[#00f0ff] border border-cyan-500/30 hover:border-cyan-400'
                         }`}
                       >
                         <MessageSquare className="w-3.5 h-3.5" />
@@ -266,7 +266,7 @@ export const AgentLab: React.FC = () => {
 
                       <button
                         onClick={() => setInspectingAgent(agent)}
-                        className="p-1.5 rounded-xl bg-zinc-850 hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200 border border-zinc-750 transition"
+                        className="p-1.5 rounded-xl bg-cyan-950/40 hover:bg-cyan-900/60 text-cyan-400 hover:text-white border border-cyan-500/30 transition"
                         title="Inspect Agent System Prompt & Parameters"
                       >
                         <Info className="w-3.5 h-3.5" />
@@ -282,16 +282,16 @@ export const AgentLab: React.FC = () => {
 
       {/* Modal: Inspect Agent Details */}
       {inspectingAgent && (
-        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-sm flex items-center justify-center p-4">
-          <div className="bg-[#121215] border border-zinc-800 rounded-2xl max-w-lg w-full shadow-2xl overflow-hidden animate-in fade-in duration-150">
-            <div className="p-4 bg-[#16161a] border-b border-zinc-800 flex items-center justify-between">
+        <div className="fixed inset-0 z-50 bg-[#050508]/80 backdrop-blur-md flex items-center justify-center p-4">
+          <div className="bg-[#080d1a]/95 border border-cyan-500/40 rounded-2xl max-w-lg w-full shadow-[0_0_35px_rgba(0,240,255,0.2)] overflow-hidden animate-in fade-in duration-150">
+            <div className="p-4 bg-[#0a1224] border-b border-cyan-500/20 flex items-center justify-between">
               <div className="flex items-center gap-2.5">
                 <span className="text-xl">{inspectingAgent.avatar}</span>
                 <div>
                   <h3 className="text-sm font-semibold text-white font-mono">
                     {inspectingAgent.name}
                   </h3>
-                  <div className="flex items-center gap-2 text-[10px] font-mono text-zinc-400">
+                  <div className="flex items-center gap-2 text-[10px] font-mono text-cyan-400">
                     <span>Badge: {inspectingAgent.badge}</span>
                     <span>•</span>
                     <span>Category: {inspectingAgent.category}</span>
@@ -300,7 +300,7 @@ export const AgentLab: React.FC = () => {
               </div>
               <button
                 onClick={() => setInspectingAgent(null)}
-                className="p-1 rounded hover:bg-zinc-800 text-zinc-400 hover:text-zinc-200"
+                className="p-1 rounded hover:bg-cyan-950 text-cyan-400 hover:text-white"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -308,10 +308,10 @@ export const AgentLab: React.FC = () => {
 
             <div className="p-5 space-y-4">
               <div>
-                <label className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider block mb-1">
+                <label className="text-[10px] font-mono text-cyan-400 uppercase tracking-wider block mb-1">
                   ROLE & MISSION
                 </label>
-                <p className="text-xs text-zinc-300 leading-relaxed bg-zinc-900/60 p-3 rounded-xl border border-zinc-800">
+                <p className="text-xs text-cyan-100 leading-relaxed bg-[#050508]/60 p-3 rounded-xl border border-cyan-500/20">
                   {inspectingAgent.description}
                 </p>
               </div>

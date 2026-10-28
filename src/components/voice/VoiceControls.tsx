@@ -41,21 +41,21 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
       {isSpeaking && onInterrupt && (
         <button
           onClick={onInterrupt}
-          className="flex items-center gap-1.5 px-3.5 py-2 rounded-full bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-semibold shadow-lg transition-all animate-bounce"
+          className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-cyan-950/80 hover:bg-cyan-900/80 text-[#00f0ff] border border-cyan-400/50 text-xs font-mono font-bold shadow-[0_0_20px_rgba(0,240,255,0.4)] transition-all animate-bounce"
           title="Interrupt AXION and speak"
         >
-          <Hand className="w-3.5 h-3.5" />
-          <span>Interrupt</span>
+          <Hand className="w-4 h-4 text-[#00f0ff]" />
+          <span>INTERRUPT</span>
         </button>
       )}
 
       {/* 2. Speaker Audio Readout Toggle */}
       <button
         onClick={onToggleTts}
-        className={`p-3 rounded-full transition-all border ${
+        className={`p-3 rounded-full transition-all border backdrop-blur-md ${
           audioTtsEnabled
-            ? 'bg-zinc-850 hover:bg-zinc-800 text-cyan-400 border-cyan-500/30 shadow-md shadow-cyan-500/5'
-            : 'bg-zinc-900 hover:bg-zinc-850 text-zinc-500 border-zinc-800'
+            ? 'bg-cyan-950/80 hover:bg-cyan-900/80 text-[#00f0ff] border-cyan-500/40 shadow-[0_0_12px_rgba(0,240,255,0.2)]'
+            : 'bg-[#080e1c] hover:bg-[#0c162c] text-cyan-600 border-cyan-500/20'
         }`}
         title={audioTtsEnabled ? 'Speaker Output ON' : 'Speaker Output Muted (Text Only)'}
       >
@@ -67,10 +67,10 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
         onClick={onToggleMute}
         className={`p-4 rounded-full transition-all border shadow-xl flex items-center justify-center ${
           isMuted
-            ? 'bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 border-rose-500/40 shadow-rose-500/10'
+            ? 'bg-rose-950/60 hover:bg-rose-900/60 text-rose-300 border-rose-500/40 shadow-rose-500/20'
             : state === 'listening'
-            ? 'bg-cyan-500 hover:bg-cyan-400 text-black border-cyan-300 shadow-cyan-500/30 animate-pulse'
-            : 'bg-zinc-800 hover:bg-zinc-700 text-zinc-100 border-zinc-700'
+            ? 'bg-[#00f0ff] hover:bg-[#38bdf8] text-[#050508] border-cyan-200 shadow-[0_0_30px_rgba(0,240,255,0.7)] animate-pulse'
+            : 'bg-[#0a1224] hover:bg-[#0e1932] text-white border-cyan-500/40 hover:border-cyan-400 hover:shadow-[0_0_15px_rgba(0,240,255,0.2)]'
         }`}
         title={isMuted ? 'Unmute Microphone (Start Listening)' : 'Mute Microphone (Pause Listening)'}
       >
@@ -80,7 +80,7 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
       {/* 4. End Conversation & Return to Chat */}
       <button
         onClick={onEndConversation}
-        className="p-3 rounded-full bg-zinc-900 hover:bg-rose-950/60 text-zinc-400 hover:text-rose-300 border border-zinc-800 hover:border-rose-800/60 transition-all shadow-md"
+        className="p-3 rounded-full bg-[#080e1c] hover:bg-rose-950/60 text-cyan-300 hover:text-rose-300 border border-cyan-500/25 hover:border-rose-500/40 transition-all shadow-md"
         title="End Voice Conversation (Preserves all history in Chat)"
       >
         <X className="w-5 h-5" />
@@ -89,7 +89,7 @@ export const VoiceControls: React.FC<VoiceControlsProps> = ({
       {/* 5. Voice Settings Trigger */}
       <button
         onClick={onOpenSettings}
-        className="p-3 rounded-full bg-zinc-900 hover:bg-zinc-850 text-zinc-400 hover:text-zinc-200 border border-zinc-800 transition-all shadow-md"
+        className="p-3 rounded-full bg-[#080e1c] hover:bg-[#0c162c] text-cyan-300 hover:text-white border border-cyan-500/25 hover:border-cyan-400 transition-all shadow-md"
         title="Voice & Language Settings"
       >
         <Settings className="w-5 h-5" />

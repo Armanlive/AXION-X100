@@ -1,0 +1,13 @@
+{
+  "agents": {
+    "providers": [
+      {
+        "name": "openai",
+        "enabled": true,
+        "apiKey": "${OPENROUTER_API_KEY}",
+        "baseUrl": "http://localhost:2828/v1",
+        "model": "openrouter/openrouter/free"
+      }
+    ]
+  }
+}

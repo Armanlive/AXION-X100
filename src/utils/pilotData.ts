@@ -6,8 +6,8 @@ export const INITIAL_PILOT_TASKS: PilotTask[] = [
     title: 'Project Understanding',
     description: 'Architecture & tech stack scanning across repository structure.',
     targetScenario: 'Initial workspace onboarding and AST understanding.',
-    suggestedPrompt: 'Mere project ka main App component explain karo aur dependencies batao',
-    voicePromptHinglish: 'Bhai mere project ka App component explain karo',
+    suggestedPrompt: 'Explain the main App component of this project and its dependencies',
+    voicePromptHinglish: 'Explain the App component of this project',
     status: 'passed',
     score: 50,
     breakdown: {
@@ -27,8 +27,8 @@ export const INITIAL_PILOT_TASKS: PilotTask[] = [
     title: 'Simple UI Change',
     description: 'Header compact height & date right side alignment with live diff.',
     targetScenario: 'Precision UI refactor with zero visual or layout regressions.',
-    suggestedPrompt: 'Header ko compact karo aur date right side daal do',
-    voicePromptHinglish: 'Bhai dashboard ka header thoda chhota kar de aur date right side mein daal de',
+    suggestedPrompt: 'Make the header compact and move the date to the right side',
+    voicePromptHinglish: 'Make the dashboard header smaller and move the date to the right',
     status: 'passed',
     score: 50,
     breakdown: {
@@ -48,8 +48,8 @@ export const INITIAL_PILOT_TASKS: PilotTask[] = [
     title: 'Voice Coding (Hinglish)',
     description: 'Natural speech-to-text with Hinglish normalizer parsing colloquial commands.',
     targetScenario: 'Hands-free voice instruction parsing and execution.',
-    suggestedPrompt: 'Bhai sidebar ko compact kar de aur icons prominent bana',
-    voicePromptHinglish: 'Bhai sidebar ko compact kar de',
+    suggestedPrompt: 'Make the sidebar compact and the icons more prominent',
+    voicePromptHinglish: 'Make the sidebar compact',
     status: 'passed',
     score: 49,
     breakdown: {
@@ -69,8 +69,8 @@ export const INITIAL_PILOT_TASKS: PilotTask[] = [
     title: 'Multi-File Modification',
     description: 'Coordinated updates across component, store, and styles.',
     targetScenario: 'Atomically patching multiple dependent files without state mismatch.',
-    suggestedPrompt: 'Ek naya StatsCard component banao aur App.tsx me mount karo',
-    voicePromptHinglish: 'Ek naya statscard component banao',
+    suggestedPrompt: 'Create a new StatsCard component and mount it in App.tsx',
+    voicePromptHinglish: 'Create a new StatsCard component',
     status: 'passed',
     score: 48,
     breakdown: {

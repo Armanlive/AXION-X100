@@ -1,0 +1,33 @@
+{
+  "engineChecks": {
+    "checks": [
+      "Mic indicator follows acquired stream",
+      "Background speech is ignored while waiting for wake",
+      "Wake phrase produces one acknowledgement",
+      "Microphone releases while acknowledgement plays",
+      "Wake acknowledgement arms next question",
+      "One final question submits once and suppresses duplicate results",
+      "Completed turn returns to wake waiting",
+      "Wake prefix is removed from combined wake-and-question",
+      "Mute rejects late speech and clears mic indicator",
+      "All acquired tracks stop after mute",
+      "PTT release drains the final result",
+      "PTT does not restart after release/reply",
+      "One speak request queues one device utterance",
+      "Two synthetic clap transients arm the question listener",
+      "Late permission result is released after destroy"
+    ],
+    "errors": [],
+    "note": "Synthetic browser speech/microphone adapters for lifecycle tests; no live microphone/TTS hardware verification."
+  },
+  "conversationChecks": [
+    "AXION name receives a greeting without old specialist template",
+    "Missing provider clearly asks for configuration instead of fake AI output",
+    "Mentioned/negated controls do not execute",
+    "Direct Hindi panel command is recognized",
+    "Provider stream returns conversational content",
+    "Original prompt occurs once with no technical-intent rewrite",
+    "Provider rejection is surfaced without repeating the fallback template"
+  ],
+  "pageErrors": []
+}

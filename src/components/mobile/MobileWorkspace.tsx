@@ -91,16 +91,16 @@ export const MobileWorkspace: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#0b0b0c] text-zinc-100 overflow-hidden relative pb-16">
+    <div className="flex-1 flex flex-col h-full bg-[#050508] cyber-grid-bg text-cyan-100 overflow-hidden relative pb-16">
       {/* 1. Mobile Top Bar */}
-      <header className="h-12 bg-[#09090b]/95 border-b border-zinc-800/80 px-4 flex items-center justify-between shrink-0 z-20 backdrop-blur-md">
+      <header className="h-12 bg-[#080d1a]/95 border-b border-cyan-500/20 px-4 flex items-center justify-between shrink-0 z-20 backdrop-blur-md">
         <div className="flex items-center gap-2">
-          <Folder className="w-4 h-4 text-cyan-400" />
-          <span className="text-xs font-mono font-semibold tracking-wider text-zinc-200">
-            LOCAL WORKSPACE
+          <Folder className="w-4 h-4 text-[#00f0ff] animate-pulse" />
+          <span className="text-xs font-mono font-semibold tracking-wider text-white">
+            LOCAL WORKSPACE // HUD
           </span>
         </div>
-        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 border border-cyan-500/20">
+        <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-cyan-500/20 text-[#00f0ff] border border-cyan-400/30">
           Phase 1: Read-Only
         </span>
       </header>
@@ -121,10 +121,10 @@ export const MobileWorkspace: React.FC = () => {
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {/* Workspace Identity Card */}
         {activeWorkspace ? (
-          <div className="p-4 rounded-2xl bg-[#121215] border border-zinc-800 shadow-lg space-y-3">
+          <div className="p-4 rounded-2xl bg-[#080d1a]/85 border border-cyan-500/30 shadow-[0_0_20px_rgba(0,240,255,0.1)] space-y-3">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
-                <span className="text-[10px] font-mono uppercase tracking-wider text-zinc-500">
+                <span className="text-[10px] font-mono uppercase tracking-wider text-cyan-400/60">
                   Active Project
                 </span>
                 <h2 className="text-base font-bold text-white font-mono truncate">
@@ -249,28 +249,28 @@ export const MobileWorkspace: React.FC = () => {
 
       {/* Read-Only File Inspection Modal / Sheet */}
       {selectedFilePath && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex flex-col justify-end p-2 animate-in fade-in">
-          <div className="bg-[#121215] border border-zinc-800 rounded-2xl max-h-[85dvh] flex flex-col overflow-hidden shadow-2xl animate-in slide-in-from-bottom duration-200">
-            <div className="p-3 bg-[#16161a] border-b border-zinc-800 flex items-center justify-between shrink-0">
+        <div className="fixed inset-0 z-50 bg-[#050508]/80 backdrop-blur-md flex flex-col justify-end p-2 animate-in fade-in">
+          <div className="bg-[#080d1a]/95 border border-cyan-500/40 rounded-2xl max-h-[85dvh] flex flex-col overflow-hidden shadow-[0_0_35px_rgba(0,240,255,0.2)] animate-in slide-in-from-bottom duration-200">
+            <div className="p-3 bg-[#0a1224] border-b border-cyan-500/20 flex items-center justify-between shrink-0">
               <div className="flex items-center gap-2 truncate">
-                <FileCode className="w-4 h-4 text-cyan-400 shrink-0" />
+                <FileCode className="w-4 h-4 text-[#00f0ff] shrink-0" />
                 <span className="text-xs font-mono font-semibold text-white truncate">
                   {selectedFilePath}
                 </span>
-                <span className="text-[10px] font-mono text-zinc-500 shrink-0">
+                <span className="text-[10px] font-mono text-cyan-400/60 shrink-0">
                   (Read-Only)
                 </span>
               </div>
               <button
                 onClick={() => setSelectedFilePath(null)}
-                className="p-1 min-h-[44px] min-w-[44px] flex items-center justify-center text-zinc-400 hover:text-white"
+                className="p-1 min-h-[44px] min-w-[44px] flex items-center justify-center text-cyan-400 hover:text-white"
                 aria-label="Close file viewer"
               >
                 <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-3 flex-1 overflow-auto bg-[#0b0b0c] font-mono text-xs text-zinc-300 select-text whitespace-pre leading-relaxed">
+            <div className="p-3 flex-1 overflow-auto bg-[#050508] font-mono text-xs text-cyan-100 select-text whitespace-pre leading-relaxed">
               {fileContent}
             </div>
           </div>

@@ -4,7 +4,7 @@ export const INITIAL_AGENTS: Agent[] = [
   // 1. Management & Architecture
   {
     id: 'boss-agent',
-    name: 'Boss Agent',
+    name: 'Supreme Core',
     role: 'boss',
     category: 'management',
     avatar: '👑',

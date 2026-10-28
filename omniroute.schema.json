@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OmniRoute Gateway Configuration",
+  "type": "object",
+  "required": ["name", "gateway"],
+  "properties": {
+    "name": { "type": "string", "description": "Configuration name" },
+    "description": { "type": "string", "description": "Human readable description" },
+    "gateway": {
+      "type": "object",
+      "required": ["enabled", "baseUrl", "apiKey", "healthPath"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "baseUrl": { "type": "string", "format": "uri" },
+        "apiKey": { "type": "string", "description": "API key; use $env:VAR_NAME to load from environment" },
+        "apiKeyEnv": { "type": "string", "description": "Environment variable name for the API key" },
+        "healthPath": { "type": "string", "format": "uri" },
+        "healthTimeoutMs": { "type": "number" },
+        "heartBeatIntervalMs": { "type": "number" }
+      }
+    },
+    "routing": {
+      "type": "object",
+      "properties": {
+        "mode": { "type": "string", "enum": ["dynamic", "static"] },
+        "fallbackOnRateLimit": { "type": "boolean" },
+        "failoverProviders": { "type": "array", "items": { "type": "string" } },
+        "paidFallbackBlocked": { "type": "boolean" }
+      }
+    },
+    "models": {
+      "type": "object",
+      "properties": {
+        "primary": { "type": "string" },
+        "fallback": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "properties": {
+        "maxContextTokens": { "type": "number" },
+        "maxTokensPerResponse": { "type": "number" },
+        "rateLimitBurst": { "type": "number" },
+        "rateLimitPerMinute": { "type": "number" }
+      }
+    },
+    "log": {
+      "type": "object",
+      "properties": {
+        "level": { "type": "string", "enum": ["debug", "info", "warn", "error"] },
+        "format": { "type": "string", "enum": ["text", "json"] },
+        "saveTo": { "type": "string" }
+      }
+    }
+  }
+}

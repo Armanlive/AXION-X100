@@ -122,7 +122,7 @@ export const LocalWorkspacePage: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-[#0b0b0c] text-zinc-100 overflow-y-auto select-none font-sans">
+    <div className="flex-1 flex flex-col h-full bg-[#050508] cyber-grid-bg text-cyan-100 overflow-y-auto select-none font-sans">
       {/* Hidden Webkitdirectory folder input */}
       <input
         type="file"
@@ -136,35 +136,35 @@ export const LocalWorkspacePage: React.FC = () => {
       />
 
       {/* Header */}
-      <div className="p-6 border-b border-zinc-800/80 bg-[#0e0e11] shrink-0">
+      <div className="p-6 border-b border-cyan-500/20 bg-[#080d1a]/80 backdrop-blur-md shrink-0">
         <div className="max-w-5xl mx-auto flex flex-col sm:flex-row sm:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-2 text-xs font-mono text-zinc-400 uppercase tracking-widest mb-1">
-              <Folder className="w-3.5 h-3.5 text-zinc-400" />
-              <span>Project Management</span>
+            <div className="flex items-center gap-2 text-xs font-mono text-[#00f0ff] uppercase tracking-widest mb-1">
+              <Folder className="w-3.5 h-3.5 text-[#00f0ff] animate-pulse" />
+              <span>Project Management // Local Nodes</span>
             </div>
-            <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-3">
-              <span>LOCAL WORKSPACE</span>
+            <h1 className="text-xl font-bold tracking-tight text-white flex items-center gap-3 font-mono">
+              <span className="text-[#00f0ff] uppercase tracking-wider">LOCAL WORKSPACE</span>
               {activeWorkspace ? (
                 activeWorkspace.runtimeMode === 'native-tauri' ? (
-                  <span className="text-xs px-2.5 py-0.5 rounded-full font-mono font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-xs px-2.5 py-0.5 rounded-full font-mono font-medium bg-cyan-500/10 text-[#00f0ff] border border-cyan-500/30 flex items-center gap-1.5 shadow-[0_0_10px_rgba(0,240,255,0.2)]">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#00f0ff] animate-ping" />
                     Tauri v2 Native (Disk Enforced)
                   </span>
                 ) : (
-                  <span className="text-xs px-2.5 py-0.5 rounded-full font-mono font-medium bg-blue-500/10 text-blue-400 border border-blue-500/20 flex items-center gap-1.5">
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
+                  <span className="text-xs px-2.5 py-0.5 rounded-full font-mono font-medium bg-sky-500/10 text-sky-400 border border-sky-500/30 flex items-center gap-1.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-sky-400" />
                     Web Sandbox (Browser API)
                   </span>
                 )
               ) : (
-                <span className="text-xs px-2.5 py-0.5 rounded-full font-mono font-medium bg-zinc-800 text-zinc-400 border border-zinc-700 flex items-center gap-1.5">
-                  <span className="w-1.5 h-1.5 rounded-full bg-zinc-500" />
+                <span className="text-xs px-2.5 py-0.5 rounded-full font-mono font-medium bg-cyan-950/40 text-cyan-400/60 border border-cyan-900/40 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-cyan-600" />
                   No Project Mounted
                 </span>
               )}
             </h1>
-            <p className="text-xs text-zinc-400 mt-1 max-w-xl leading-relaxed">
+            <p className="text-xs text-cyan-200/60 mt-1 max-w-xl leading-relaxed font-mono">
               {isNativeRuntime
                 ? 'AXION executes with Rust native boundary enforcement in Tauri v2. All path operations are validated against canonical disk roots.'
                 : 'Running in Web Sandbox mode. Folder access uses the browser File System Access API.'}
@@ -175,20 +175,20 @@ export const LocalWorkspacePage: React.FC = () => {
             <button
               onClick={handleOpenFolder}
               disabled={isScanningProject}
-              className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-zinc-100 hover:bg-white text-zinc-900 text-xs font-semibold shadow-sm transition disabled:opacity-50"
+              className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-[#00f0ff] hover:bg-[#38bdf8] text-[#050508] text-xs font-mono font-bold shadow-[0_0_15px_rgba(0,240,255,0.4)] transition disabled:opacity-50"
             >
-              <FolderOpen className="w-4 h-4 text-zinc-900" />
-              <span>{isScanningProject ? 'Scanning...' : 'Open Folder'}</span>
+              <FolderOpen className="w-4 h-4 text-[#050508]" />
+              <span>{isScanningProject ? 'Scanning...' : 'OPEN FOLDER'}</span>
             </button>
             <button
               onClick={() => setIsPathModalOpen(true)}
-              className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-xs font-medium border border-zinc-800 transition"
+              className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-[#080d1a]/80 hover:bg-cyan-950/60 text-cyan-300 hover:text-white text-xs font-mono font-medium border border-cyan-500/30 hover:border-cyan-400 transition"
             >
               <span>Mount Path</span>
             </button>
             <button
               onClick={() => setCurrentTab('workspace')}
-              className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-200 text-xs font-medium border border-zinc-700/60 transition"
+              className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-[#00f0ff]/10 hover:bg-[#00f0ff]/20 text-[#00f0ff] text-xs font-mono font-medium border border-cyan-500/40 transition shadow-[0_0_10px_rgba(0,240,255,0.15)]"
             >
               <span>Back to Chat</span>
               <ArrowRight className="w-3.5 h-3.5" />
@@ -222,20 +222,20 @@ export const LocalWorkspacePage: React.FC = () => {
       <div className="p-6 flex-1 max-w-5xl w-full mx-auto space-y-6">
         {activeWorkspace ? (
           /* Active Workspace Showcase Card */
-          <div className="bg-[#121215] border border-zinc-800 rounded-2xl p-6 shadow-xl relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-96 h-96 bg-zinc-800/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="bg-[#080d1a]/80 backdrop-blur-md border border-cyan-500/30 rounded-2xl p-6 shadow-[0_0_30px_rgba(0,240,255,0.08)] relative overflow-hidden">
+            <div className="absolute top-0 right-0 w-96 h-96 bg-cyan-500/5 rounded-full blur-3xl pointer-events-none" />
 
             <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-6 relative z-10">
               <div className="space-y-4 flex-1">
                 <div className="flex items-center gap-3">
-                  <div className="w-12 h-12 rounded-xl bg-zinc-800/90 border border-zinc-700/80 flex items-center justify-center text-zinc-100 font-mono shadow-md">
-                    <Folder className="w-6 h-6 text-zinc-300" />
+                  <div className="w-12 h-12 rounded-xl bg-cyan-950/60 border border-cyan-500/40 flex items-center justify-center text-[#00f0ff] font-mono shadow-[0_0_15px_rgba(0,240,255,0.2)]">
+                    <Folder className="w-6 h-6 text-[#00f0ff]" />
                   </div>
                   <div>
-                    <div className="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">
-                      CURRENT ACTIVE WORKSPACE
+                    <div className="text-[10px] font-mono text-[#00f0ff]/70 uppercase tracking-widest">
+                      ACTIVE QUANTUM NODE // WORKSPACE
                     </div>
-                    <h2 className="text-xl font-bold text-white font-mono tracking-tight">
+                    <h2 className="text-xl font-bold text-white font-mono tracking-tight drop-shadow-[0_0_10px_rgba(0,240,255,0.4)]">
                       {activeWorkspace.name}
                     </h2>
                   </div>
@@ -243,38 +243,38 @@ export const LocalWorkspacePage: React.FC = () => {
 
                 {/* Project Meta Grid */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 pt-2">
-                  <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800/80">
-                    <div className="text-[10px] font-mono text-zinc-500 uppercase flex items-center gap-1.5">
-                      <HardDrive className="w-3 h-3 text-zinc-400" />
+                  <div className="p-3 rounded-xl bg-[#050508]/60 border border-cyan-500/20">
+                    <div className="text-[10px] font-mono text-cyan-400 uppercase flex items-center gap-1.5">
+                      <HardDrive className="w-3 h-3 text-[#00f0ff]" />
                       <span>Workspace Root</span>
                     </div>
-                    <div className="text-xs font-mono text-zinc-200 truncate mt-1" title={activeWorkspace.absolutePath}>
+                    <div className="text-xs font-mono text-cyan-100 truncate mt-1" title={activeWorkspace.absolutePath}>
                       {activeWorkspace.absolutePath}
                     </div>
                   </div>
 
-                  <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800/80">
-                    <div className="text-[10px] font-mono text-zinc-500 uppercase flex items-center gap-1.5">
-                      <GitBranch className="w-3 h-3 text-zinc-400" />
+                  <div className="p-3 rounded-xl bg-[#050508]/60 border border-cyan-500/20">
+                    <div className="text-[10px] font-mono text-cyan-400 uppercase flex items-center gap-1.5">
+                      <GitBranch className="w-3 h-3 text-[#38bdf8]" />
                       <span>Git Branch</span>
                     </div>
-                    <div className="text-xs font-mono text-zinc-200 mt-1 flex items-center gap-2">
-                      <span className="font-semibold">{activeWorkspace.gitBranch || 'main'}</span>
-                      <span className="text-[10px] text-zinc-500">
+                    <div className="text-xs font-mono text-cyan-100 mt-1 flex items-center gap-2">
+                      <span className="font-semibold text-white">{activeWorkspace.gitBranch || 'main'}</span>
+                      <span className="text-[10px] text-cyan-400/60">
                         ({activeWorkspace.gitRepository ? 'Git repo' : 'Local'})
                       </span>
                     </div>
                   </div>
 
-                  <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800/80">
-                    <div className="text-[10px] font-mono text-zinc-500 uppercase flex items-center gap-1.5">
-                      <ShieldCheck className="w-3 h-3 text-emerald-400" />
+                  <div className="p-3 rounded-xl bg-[#050508]/60 border border-cyan-500/20">
+                    <div className="text-[10px] font-mono text-cyan-400 uppercase flex items-center gap-1.5">
+                      <ShieldCheck className="w-3 h-3 text-[#00f0ff]" />
                       <span>Runtime Mode</span>
                     </div>
-                    <div className="text-xs font-mono text-zinc-200 mt-1 font-semibold flex items-center gap-1.5">
+                    <div className="text-xs font-mono text-cyan-100 mt-1 font-semibold flex items-center gap-1.5">
                       <span
                         className={`w-1.5 h-1.5 rounded-full ${
-                          activeWorkspace.runtimeMode === 'native-tauri' ? 'bg-emerald-400' : 'bg-blue-400'
+                          activeWorkspace.runtimeMode === 'native-tauri' ? 'bg-[#00f0ff] animate-ping' : 'bg-sky-400'
                         }`}
                       />
                       <span>
@@ -285,22 +285,22 @@ export const LocalWorkspacePage: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800/80">
-                    <div className="text-[10px] font-mono text-zinc-500 uppercase flex items-center gap-1.5">
-                      <Package className="w-3 h-3 text-zinc-400" />
+                  <div className="p-3 rounded-xl bg-[#050508]/60 border border-cyan-500/20">
+                    <div className="text-[10px] font-mono text-cyan-400 uppercase flex items-center gap-1.5">
+                      <Package className="w-3 h-3 text-[#38bdf8]" />
                       <span>Project Type</span>
                     </div>
-                    <div className="text-xs font-mono text-zinc-200 mt-1 truncate">
+                    <div className="text-xs font-mono text-cyan-100 mt-1 truncate">
                       {activeWorkspace.projectType || 'Standard Application'}
                     </div>
                   </div>
 
-                  <div className="p-3 rounded-xl bg-zinc-900/80 border border-zinc-800/80">
-                    <div className="text-[10px] font-mono text-zinc-500 uppercase flex items-center gap-1.5">
-                      <Cpu className="w-3 h-3 text-zinc-400" />
+                  <div className="p-3 rounded-xl bg-[#050508]/60 border border-cyan-500/20">
+                    <div className="text-[10px] font-mono text-cyan-400 uppercase flex items-center gap-1.5">
+                      <Cpu className="w-3 h-3 text-[#00f0ff]" />
                       <span>Indexed Files</span>
                     </div>
-                    <div className="text-xs font-mono text-zinc-200 mt-1">
+                    <div className="text-xs font-mono text-cyan-100 mt-1">
                       {activeWorkspace.indexedFileCount} files
                     </div>
                   </div>
@@ -310,22 +310,22 @@ export const LocalWorkspacePage: React.FC = () => {
           </div>
         ) : (
           /* Empty Workspace Banner */
-          <div className="p-12 rounded-2xl border border-dashed border-zinc-800 bg-[#121214]/50 text-center space-y-4">
-            <div className="w-14 h-14 mx-auto rounded-2xl bg-zinc-800/60 border border-zinc-700/60 flex items-center justify-center text-zinc-400">
+          <div className="p-12 rounded-2xl border border-dashed border-cyan-500/30 bg-[#080d1a]/50 backdrop-blur-md text-center space-y-4">
+            <div className="w-14 h-14 mx-auto rounded-2xl bg-cyan-950/60 border border-cyan-500/40 flex items-center justify-center text-[#00f0ff] shadow-[0_0_20px_rgba(0,240,255,0.2)]">
               <FolderOpen className="w-7 h-7" />
             </div>
             <div>
-              <h3 className="text-base font-semibold text-white">No Project Mounted</h3>
-              <p className="text-xs text-zinc-400 max-w-sm mx-auto mt-1">
+              <h3 className="text-base font-semibold text-white font-mono">NO ACTIVE PROJECT MOUNTED</h3>
+              <p className="text-xs text-cyan-200/60 max-w-sm mx-auto mt-1 font-mono">
                 Open a local project directory to allow AXION to read files, run tests, and execute within your repository boundary.
               </p>
             </div>
             <button
               onClick={handleOpenFolder}
-              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-zinc-100 hover:bg-white text-zinc-900 text-xs font-semibold shadow-sm transition"
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-[#00f0ff] hover:bg-[#38bdf8] text-[#050508] text-xs font-mono font-bold shadow-[0_0_15px_rgba(0,240,255,0.4)] transition"
             >
               <FolderOpen className="w-4 h-4" />
-              <span>Select Project Directory</span>
+              <span>SELECT PROJECT DIRECTORY</span>
             </button>
           </div>
         )}
@@ -333,13 +333,13 @@ export const LocalWorkspacePage: React.FC = () => {
         {/* Recent Workspaces List */}
         <div className="space-y-3">
           <div className="flex items-center justify-between">
-            <h3 className="text-xs font-mono font-semibold text-zinc-400 uppercase tracking-wider">
+            <h3 className="text-xs font-mono font-semibold text-cyan-400 uppercase tracking-wider">
               Recent Projects ({workspaces.length})
             </h3>
             {workspaces.length > 0 && (
               <button
                 onClick={clearRecentWorkspaces}
-                className="text-[11px] font-mono text-zinc-500 hover:text-rose-400 transition"
+                className="text-[11px] font-mono text-cyan-400/60 hover:text-rose-400 transition"
               >
                 Clear Recents
               </button>
@@ -347,7 +347,7 @@ export const LocalWorkspacePage: React.FC = () => {
           </div>
 
           {workspaces.length === 0 ? (
-            <div className="p-6 rounded-xl border border-dashed border-zinc-800 text-center text-xs text-zinc-500">
+            <div className="p-6 rounded-xl border border-dashed border-cyan-500/20 text-center text-xs font-mono text-cyan-400/50 bg-[#080d1a]/30">
               No recent projects recorded. Open a project folder to populate this list.
             </div>
           ) : (
@@ -360,16 +360,16 @@ export const LocalWorkspacePage: React.FC = () => {
                     onClick={() => switchWorkspace(ws.id)}
                     className={`group p-4 rounded-xl border cursor-pointer transition flex items-start justify-between gap-3 ${
                       isActive
-                        ? 'bg-zinc-800/80 border-zinc-600 shadow-md ring-1 ring-zinc-500/30'
-                        : 'bg-[#121214] border-zinc-800/80 hover:border-zinc-700 hover:bg-[#161619]'
+                        ? 'bg-cyan-950/40 border-cyan-400/60 shadow-[0_0_20px_rgba(0,240,255,0.15)] ring-1 ring-[#00f0ff]/30'
+                        : 'bg-[#080d1a]/70 backdrop-blur-md border-cyan-500/20 hover:border-cyan-400/50 hover:bg-[#0c1428]'
                     }`}
                   >
                     <div className="flex items-start gap-3 min-w-0">
                       <div
                         className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
                           isActive
-                            ? 'bg-zinc-700 text-white'
-                            : 'bg-zinc-850 text-zinc-400 border border-zinc-800'
+                            ? 'bg-[#00f0ff]/20 text-[#00f0ff] border border-cyan-400/50'
+                            : 'bg-cyan-950/40 text-cyan-400 border border-cyan-500/20'
                         }`}
                       >
                         <Folder className="w-4 h-4" />
@@ -378,15 +378,15 @@ export const LocalWorkspacePage: React.FC = () => {
                         <div className="flex items-center gap-2">
                           <span className="text-xs font-bold text-white font-mono truncate">{ws.name}</span>
                           {isActive && (
-                            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full bg-cyan-500/20 text-[#00f0ff] border border-cyan-400/40">
                               ACTIVE
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] font-mono text-zinc-500 truncate mt-0.5" title={ws.path}>
+                        <div className="text-[11px] font-mono text-cyan-300/60 truncate mt-0.5" title={ws.path}>
                           {ws.path}
                         </div>
-                        <div className="flex items-center gap-3 text-[10px] font-mono text-zinc-500 mt-2">
+                        <div className="flex items-center gap-3 text-[10px] font-mono text-cyan-400/50 mt-2">
                           <span>branch: {ws.branch || 'main'}</span>
                           {ws.indexedFileCount ? (
                             <>
@@ -406,12 +406,12 @@ export const LocalWorkspacePage: React.FC = () => {
                           e.stopPropagation();
                           removeRecentWorkspace(ws.id);
                         }}
-                        className="p-1 text-zinc-500 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition rounded"
+                        className="p-1 text-cyan-500/60 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition rounded"
                         title="Remove from Recents"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
-                      <ArrowRight className="w-4 h-4 text-zinc-500" />
+                      <ArrowRight className="w-4 h-4 text-cyan-400 group-hover:text-[#00f0ff] group-hover:translate-x-0.5 transition-all" />
                     </div>
                   </div>
                 );
@@ -423,26 +423,26 @@ export const LocalWorkspacePage: React.FC = () => {
 
       {/* Manual Path Modal */}
       {isPathModalOpen && (
-        <div className="fixed inset-0 z-50 bg-black/70 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-100">
-          <div className="bg-[#141417] border border-zinc-800 rounded-2xl max-w-md w-full p-6 shadow-2xl relative">
+        <div className="fixed inset-0 z-50 bg-[#050508]/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-100">
+          <div className="bg-[#080d1a]/95 border border-cyan-500/40 rounded-2xl max-w-md w-full p-6 shadow-[0_0_35px_rgba(0,240,255,0.2)] relative">
             <button
               onClick={() => setIsPathModalOpen(false)}
-              className="absolute top-4 right-4 text-zinc-400 hover:text-zinc-200"
+              className="absolute top-4 right-4 text-cyan-400 hover:text-white transition"
             >
               <X className="w-4 h-4" />
             </button>
 
-            <h3 className="text-base font-bold text-white flex items-center gap-2 mb-1">
-              <FolderOpen className="w-5 h-5 text-zinc-300" />
-              <span>Mount Workspace Directory</span>
+            <h3 className="text-base font-bold text-white flex items-center gap-2 mb-1 font-mono">
+              <FolderOpen className="w-5 h-5 text-[#00f0ff]" />
+              <span className="text-[#00f0ff]">MOUNT WORKSPACE DIRECTORY</span>
             </h3>
-            <p className="text-xs text-zinc-400 mb-4">
+            <p className="text-xs text-cyan-200/60 mb-4 font-mono">
               Enter local folder name and absolute path on your host machine.
             </p>
 
             <form onSubmit={handlePathSubmit} className="space-y-4">
               <div>
-                <label className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider block mb-1">
+                <label className="text-[11px] font-mono text-cyan-400 uppercase tracking-wider block mb-1">
                   Project Name
                 </label>
                 <input
@@ -451,13 +451,13 @@ export const LocalWorkspacePage: React.FC = () => {
                   value={customFolderName}
                   onChange={(e) => setCustomFolderName(e.target.value)}
                   placeholder="e.g. my-project"
-                  className="w-full bg-zinc-900 border border-zinc-700/80 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-500"
+                  className="w-full bg-[#050508]/80 border border-cyan-500/30 rounded-lg px-3 py-2 text-xs text-white placeholder-cyan-500/40 focus:outline-none focus:border-[#00f0ff] focus:ring-1 focus:ring-[#00f0ff]/50 font-mono"
                   autoFocus
                 />
               </div>
 
               <div>
-                <label className="text-[11px] font-mono text-zinc-400 uppercase tracking-wider block mb-1">
+                <label className="text-[11px] font-mono text-cyan-400 uppercase tracking-wider block mb-1">
                   Absolute Directory Path
                 </label>
                 <input
@@ -466,7 +466,7 @@ export const LocalWorkspacePage: React.FC = () => {
                   value={customFolderPath}
                   onChange={(e) => setCustomFolderPath(e.target.value)}
                   placeholder="e.g. /home/user/my-project or C:\Users\user\my-project"
-                  className="w-full bg-zinc-900 border border-zinc-700/80 rounded-lg px-3 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none focus:border-zinc-500 font-mono"
+                  className="w-full bg-[#050508]/80 border border-cyan-500/30 rounded-lg px-3 py-2 text-xs text-white placeholder-cyan-500/40 focus:outline-none focus:border-[#00f0ff] focus:ring-1 focus:ring-[#00f0ff]/50 font-mono"
                 />
               </div>
 
@@ -474,13 +474,13 @@ export const LocalWorkspacePage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => setIsPathModalOpen(false)}
-                  className="px-3.5 py-1.5 rounded-lg text-xs text-zinc-400 hover:text-white transition"
+                  className="px-3.5 py-1.5 rounded-lg text-xs font-mono text-cyan-400/70 hover:text-white transition"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-4 py-1.5 rounded-lg bg-zinc-100 hover:bg-white text-zinc-900 text-xs font-semibold shadow-sm transition"
+                  className="px-4 py-1.5 rounded-lg bg-[#00f0ff] hover:bg-[#38bdf8] text-[#050508] text-xs font-mono font-bold shadow-[0_0_15px_rgba(0,240,255,0.4)] transition"
                 >
                   Mount Workspace
                 </button>

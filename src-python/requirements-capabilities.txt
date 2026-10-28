@@ -1,0 +1,4 @@
+-r requirements.txt
+livekit>=1.0,<2
+livekit-api>=1.0,<2
+playwright>=1.58,<2

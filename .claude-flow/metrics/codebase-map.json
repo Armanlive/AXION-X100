@@ -1,0 +1,11 @@
+{
+  "timestamp": "2026-10-08T09:43:59.967Z",
+  "projectRoot": "E:\\AXION-X100",
+  "structure": {
+    "hasPackageJson": true,
+    "hasTsConfig": true,
+    "hasClaudeConfig": true,
+    "hasClaudeFlow": true
+  },
+  "scannedAt": 1791452639968
+}

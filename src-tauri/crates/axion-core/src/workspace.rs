@@ -9,6 +9,29 @@ use walkdir::WalkDir;
 const MAX_READ_BYTES: u64 = 2 * 1024 * 1024; // 2 MB safety cap
 const MAX_DISCOVERY_FILES: usize = 5000;
 
+/// Returns the classic Win32 form of a canonicalized path. On Windows,
+/// `fs::canonicalize` yields verbatim prefixes (`\\?\E:\project`,
+/// `\\?\UNC\server\share`) that shells such as `cmd.exe` reject as a current
+/// directory ("UNC paths are not supported"), so they are stripped before a
+/// path is handed to consumers (terminal cwd, git, frontend display).
+pub fn display_root(path: &Path) -> String {
+    let raw = path.to_string_lossy();
+    #[cfg(windows)]
+    {
+        if let Some(rest) = raw.strip_prefix(r"\\?\UNC\") {
+            return format!(r"\\{}", rest);
+        }
+        if let Some(rest) = raw.strip_prefix(r"\\?\") {
+            // Keep the verbatim form only for paths longer than the classic
+            // MAX_PATH limit where stripping would break the extension.
+            if rest.len() <= 240 {
+                return rest.to_string();
+            }
+        }
+    }
+    raw.into_owned()
+}
+
 #[derive(Error, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub enum WorkspaceError {
     #[error("No active workspace is currently selected")]
@@ -109,7 +132,7 @@ impl WorkspaceManager {
         let file_count = Self::quick_file_count(&canonical);
 
         Ok(WorkspaceInfo {
-            canonical_root: canonical.to_string_lossy().to_string(),
+            canonical_root: display_root(&canonical),
             name,
             file_count,
             is_git,
@@ -134,7 +157,7 @@ impl WorkspaceManager {
         let file_count = Self::quick_file_count(root);
 
         Ok(WorkspaceInfo {
-            canonical_root: root.to_string_lossy().to_string(),
+            canonical_root: display_root(root),
             name,
             file_count,
             is_git,
@@ -351,6 +374,40 @@ impl WorkspaceManager {
             .map_err(|_| WorkspaceError::BinaryOrUnsupportedEncoding(relative_path.to_string()))
     }
 
+    /// Writes a UTF-8 text file inside the workspace (creating parent folders), then
+    /// reads it back. Only plain relative paths are accepted; secrets and VCS internals
+    /// are refused, and every existing ancestor must resolve inside the root, so a
+    /// symlinked folder cannot redirect the write elsewhere.
+    pub fn write_text_file(&self, relative_path: &str, content: &str) -> Result<String, WorkspaceError> {
+        let root = self.get_active_root()?.to_path_buf();
+        let escape = || WorkspaceError::SecurityEscapeViolation { target: relative_path.to_string(), root: root.to_string_lossy().to_string() };
+        let rel = Path::new(relative_path.trim());
+        let parts: Vec<String> = rel.components().map(|c| match c {
+            Component::Normal(s) => Ok(s.to_string_lossy().to_string()),
+            _ => Err(()),
+        }).collect::<Result<_, _>>().map_err(|_| escape())?;
+        let file_name = parts.last().ok_or_else(escape)?.to_lowercase();
+        if parts.iter().any(|p| p == ".git") || file_name == ".env" || file_name.starts_with(".env.") {
+            return Err(escape());
+        }
+        if content.len() as u64 > MAX_READ_BYTES {
+            return Err(WorkspaceError::FileTooLarge { path: relative_path.to_string(), size: content.len() as u64, max: MAX_READ_BYTES });
+        }
+        let target = root.join(rel);
+        let mut ancestor = target.as_path();
+        while !ancestor.exists() {
+            ancestor = ancestor.parent().ok_or_else(escape)?;
+        }
+        let real = fs::canonicalize(ancestor).map_err(|e| WorkspaceError::IoError(format!("Failed to resolve path: {}", e)))?;
+        if !real.starts_with(&root) { return Err(escape()); }
+        if target.is_dir() { return Err(WorkspaceError::IsADirectory(relative_path.to_string())); }
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).map_err(|e| WorkspaceError::IoError(format!("Failed to create folder: {}", e)))?;
+        }
+        fs::write(&target, content).map_err(|e| WorkspaceError::IoError(format!("Failed to write file: {}", e)))?;
+        self.read_text_file(relative_path)
+    }
+
     /// Gets metadata for a workspace file or directory.
     pub fn get_metadata(&self, relative_path: &str) -> Result<NativeFileMetadata, WorkspaceError> {
         let resolved = self.resolve_and_validate_path(relative_path)?;
@@ -466,6 +523,23 @@ mod tests {
     use std::fs::File;
     use std::io::Write;
     use tempfile::tempdir;
+
+    #[test]
+    fn writes_new_and_existing_files_but_never_outside_or_secrets() {
+        let dir = tempdir().expect("Failed to create tempdir");
+        let root = fs::canonicalize(dir.path()).expect("Canonicalize failed");
+        let mut mgr = WorkspaceManager::new();
+        mgr.set_workspace_root(&root).expect("Failed to set root");
+
+        assert_eq!(mgr.write_text_file("src/new/feature.ts", "export const a = 1;\n").unwrap(), "export const a = 1;\n");
+        assert_eq!(fs::read_to_string(root.join("src/new/feature.ts")).unwrap(), "export const a = 1;\n");
+        assert_eq!(mgr.write_text_file("src/new/feature.ts", "export const a = 2;\n").unwrap(), "export const a = 2;\n");
+
+        for bad in ["../escape.ts", "/abs.ts", "C:\\abs.ts", ".env", "config/.env.local", ".git/config", "src/../../x.ts", ""] {
+            assert!(mgr.write_text_file(bad, "x").is_err(), "{bad} must be refused");
+        }
+        assert!(!dir.path().parent().unwrap().join("escape.ts").exists());
+    }
 
     #[test]
     fn test_valid_file_inside_workspace_allowed() {

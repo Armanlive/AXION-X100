@@ -1,490 +1,455 @@
-import { prepareTextForSpeech } from './voiceNormalizer';
-import { SpeechState } from '../types';
-
+import {invoke,isTauri} from '@tauri-apps/api/core';
+import {RecordedRecognition} from './recordedRecognition.ts';
+import {LiveKitRecognition,liveKitConfigured} from './liveKitVoice.ts';
+import { prepareTextForSpeech } from './voiceNormalizer.ts';
+import { DoubleClapDetector, parseWakePhrase, selectDeviceVoice, wakeAcknowledgement, isNoiseTranscript, detectSleepCommand, sleepAcknowledgement } from './voiceActivation.ts';
+import { synthesizeFishAudio, getFishAudioKey, isFishAudioConfigured, getFishAudioModel } from '../services/fishAudioService.ts';
+import { synthesizeGeminiSpeech } from '../services/geminiTtsService.ts';
+import type { SpeechState, VoiceSettings } from '../types';
 export type VoiceState = SpeechState;
-
+type TtsEngine = NonNullable<VoiceSettings['ttsEngine']>;
+/**
+ * Language the recognizer listens for. "auto" follows the computer's language, so a
+ * Spanish or Arabic user is heard in their language; Hindi and Hinglish use hi-IN.
+ */
+export function recognitionLocale(setting: VoiceSettings['language'] | string, system = typeof navigator !== 'undefined' ? navigator.language : 'en-US'): string {
+  const sys = system || 'en-US';
+  if (setting === 'hi' || setting === 'hinglish') return 'hi-IN';
+  if (setting === 'en') return sys.toLowerCase().startsWith('en') ? sys : 'en-US';
+  return sys;
+}
 export interface VoiceEngineEvents {
   onStateChange?: (state: VoiceState) => void;
-  onTranscript?: (transcript: string, isFinal: boolean) => void;
-  onAudioLevel?: (level: number) => void; // 0.0 to 1.0
+  onTranscript?: (text: string, isFinal: boolean) => void;
+  onAudioLevel?: (level: number) => void;
   onError?: (error: string) => void;
   onBargeIn?: () => void;
+  onWake?: (phrase?:string) => boolean;
+  /** Every final phrase heard while asleep, and whether it woke AXION (for on-screen diagnostics). */
+  onHeard?: (text:string, woke:boolean) => void;
+  continueConversation?: () => boolean;
+  /** AXION was told to sleep; it now waits for its name. */
+  onSleep?: () => void;
 }
-
 export class SpeechRecognitionAdapter {
   private recognition: any = null;
-  private isListening = false;
-  private isSupported = false;
-  private language = 'hi-IN'; // Multi-lingual default: recognizes Hindi, Hinglish, and English
-  private onTranscriptCallback: ((text: string, isFinal: boolean) => void) | null = null;
-  private onStateCallback: ((state: VoiceState) => void) | null = null;
-  private onErrorCallback: ((err: string) => void) | null = null;
+  private recordedEnabled=false;private usingRecorded=false;
+  // Whisper must be told the language: left to guess, it often writes Hindi speech in Urdu script.
+  private transcriptionLanguage:string|null=null;
+  private recorded=new RecordedRecognition((audio,mime)=>invoke<string>('transcribe_audio',{audio,mime,language:this.transcriptionLanguage}),text=>this.transcript?.(text,true),error=>this.error?.(error));
+  setRecordedEnabled(enabled:boolean){this.recordedEnabled=enabled&&isTauri();}
+  sample(rms:number,now:number){if(this.usingRecorded)this.recorded.sample(rms,now);}
 
+  private transport:LiveKitRecognition|null=null;private inputStream:MediaStream|null=null;private usingTransport=false;private mode='continuous';
+  setMode(mode:string){this.mode=mode;}
+  setInputStream(stream:MediaStream|null){this.inputStream=stream;}
+  private wanted = false;
+  private running = false;
+  private starting = false;
+  private stopping = false;
+  private acceptResults = false;
+  private retry: ReturnType<typeof setTimeout> | undefined;
+  private transcript?: (text:string,final:boolean)=>void;
+  private state?: (state:VoiceState)=>void;
+  private error?: (error:string)=>void;
+  private liveAudio:{onOutputLevel?:(level:number)=>void;onOutputStarted?:()=>void;onOutputEnded?:()=>void}={};
   constructor() {
-    if (typeof window !== 'undefined') {
-      const SpeechRecognition =
-        (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SpeechRecognition) {
-        this.isSupported = true;
-        try {
-          this.recognition = new SpeechRecognition();
-          this.recognition.continuous = true;
-          this.recognition.interimResults = true;
-          this.recognition.lang = this.language;
-          this.setupListeners();
-        } catch (e) {
-          console.warn('SpeechRecognition initialization error:', e);
-          this.isSupported = false;
-        }
-      }
-    }
-  }
-
-  public checkAvailability(): boolean {
-    return this.isSupported && this.recognition !== null;
-  }
-
-  public setLanguage(lang: string) {
-    this.language = lang;
-    if (this.recognition) {
-      this.recognition.lang = lang;
-    }
-  }
-
-  public setCallbacks(
-    onTranscript: (text: string, isFinal: boolean) => void,
-    onState: (state: VoiceState) => void,
-    onError: (err: string) => void
-  ) {
-    this.onTranscriptCallback = onTranscript;
-    this.onStateCallback = onState;
-    this.onErrorCallback = onError;
-  }
-
-  private setupListeners() {
-    if (!this.recognition) return;
-
-    this.recognition.onstart = () => {
-      this.isListening = true;
-      this.onStateCallback?.('listening');
-    };
-
-    this.recognition.onresult = (event: any) => {
-      let interimTranscript = '';
-      let finalTranscript = '';
-
-      for (let i = event.resultIndex; i < event.results.length; ++i) {
-        if (event.results[i].isFinal) {
-          finalTranscript += event.results[i][0].transcript;
-        } else {
-          interimTranscript += event.results[i][0].transcript;
-        }
-      }
-
-      if (finalTranscript.trim()) {
-        this.onStateCallback?.('transcribing');
-        this.onTranscriptCallback?.(finalTranscript.trim(), true);
-      } else if (interimTranscript.trim()) {
-        this.onTranscriptCallback?.(interimTranscript.trim(), false);
-      }
-    };
-
-    this.recognition.onerror = (event: any) => {
-      // Ignore routine 'no-speech' or 'aborted' events
-      if (event.error === 'no-speech' || event.error === 'aborted') {
-        return;
-      }
-      console.warn('Speech recognition error event:', event.error);
-      this.isListening = false;
-      this.onErrorCallback?.(event.error);
-    };
-
-    this.recognition.onend = () => {
-      if (this.isListening) {
-        // Automatically restart if continuous listening is active
-        try {
-          this.recognition.start();
-        } catch (e) {
-          this.isListening = false;
-          this.onStateCallback?.('idle');
-        }
-      } else {
-        this.onStateCallback?.('idle');
-      }
-    };
-  }
-
-  public start() {
-    if (!this.checkAvailability()) {
-      this.onErrorCallback?.('Speech recognition is not supported in this browser.');
-      return;
-    }
+    if(typeof window==='undefined')return;
+    const Recognition=(window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if(!Recognition)return;
     try {
-      this.isListening = true;
-      this.recognition.start();
-    } catch (e: any) {
-      if (e.name !== 'InvalidStateError') {
-        console.warn('Error starting speech recognition:', e);
-      }
-    }
+      const rec=this.recognition=new Recognition();rec.continuous=true;rec.interimResults=true;rec.lang=recognitionLocale('auto');
+      rec.onstart=()=>{this.starting=false;this.running=true;if(!this.wanted||this.stopping){rec.abort();return;}this.acceptResults=true;this.state?.('listening');};
+      rec.onresult=(event:any)=>{
+        if(!this.acceptResults)return;
+        let final='',interim='';
+        for(let i=event.resultIndex;i<event.results.length;i++){
+          if(event.results[i].isFinal)final+=event.results[i][0].transcript+' ';else interim+=event.results[i][0].transcript+' ';
+        }
+        if(final.trim())this.transcript?.(final.trim(),true);else if(interim.trim())this.transcript?.(interim.trim(),false);
+      };
+      rec.onerror=(event:any)=>{
+        if(event.error==='no-speech'||event.error==='aborted')return;
+        this.wanted=false;this.acceptResults=false;this.error?.(event.error || 'Speech recognition failed.');
+      };
+      rec.onend=()=>{
+        this.running=false;this.starting=false;this.stopping=false;
+        if(this.wanted)this.retry=setTimeout(()=>this.start(),250);else{this.acceptResults=false;this.state?.('idle');}
+      };
+    } catch {this.recognition=null;}
   }
-
-  public stop() {
-    this.isListening = false;
-    if (this.recognition) {
-      try {
-        this.recognition.stop();
-      } catch (e) {
-        // ignore
-      }
-    }
+  checkAvailability(){return this.recordedEnabled||liveKitConfigured()||!!this.recognition;}
+  setLanguage(lang:string, autoDetect=false){if(this.recognition)this.recognition.lang=lang;this.transcriptionLanguage=autoDetect?null:lang.split('-')[0].toLowerCase();}
+  setCallbacks(transcript:(text:string,final:boolean)=>void,state:(state:VoiceState)=>void,error:(error:string)=>void){this.transcript=transcript;this.state=state;this.error=error;this.transport=new LiveKitRecognition(transcript,()=>state('listening'),error,undefined,undefined,this.liveAudio);}
+  setLiveAudioCallbacks(callbacks:{onOutputLevel?:(level:number)=>void;onOutputStarted?:()=>void;onOutputEnded?:()=>void}){this.liveAudio=callbacks;if(this.transcript&&this.state&&this.error)this.transport=new LiveKitRecognition(this.transcript,()=>this.state?.('listening'),this.error,undefined,undefined,this.liveAudio);}
+  start(){
+    if(this.recordedEnabled){if(!this.inputStream){this.error?.('Microphone stream is unavailable.');return;}this.usingRecorded=true;this.recorded.start(this.inputStream);this.state?.('listening');return;}
+    if(liveKitConfigured()){this.usingTransport=true;void this.transport?.start(this.inputStream,this.mode);return;}
+    if(!this.recognition){this.error?.('Speech recognition is unavailable in this runtime. Microphone permission alone does not enable transcription. Configure the LiveKit voice connection or use a browser with speech recognition.');return;}
+    this.wanted=true;this.acceptResults=!this.stopping;clearTimeout(this.retry);
+    if(this.running||this.starting||this.stopping)return;
+    try{this.starting=true;this.recognition.start();}catch(error:any){this.starting=false;if(error.name!=='InvalidStateError'){this.wanted=false;this.error?.('Could not start speech recognition.');}}
   }
+  restartIgnoredTurn(){if(this.usingRecorded&&this.inputStream){this.recorded.start(this.inputStream);return;}if(this.usingTransport)void this.transport?.start(this.inputStream,this.mode);}
+  stop(flush=false){if(this.usingRecorded){this.recorded.stop(flush);if(!flush)this.usingRecorded=false;return;}if(this.usingTransport){this.transport?.stop(flush);if(!flush)this.usingTransport=false;return;}this.stopping=this.running||this.starting;this.wanted=false;this.acceptResults=flush;clearTimeout(this.retry);try{flush?this.recognition?.stop():this.recognition?.abort();}catch{} }
 }
 
 export class SpeechSynthesisAdapter {
-  private isSupported = false;
-  private currentUtterance: SpeechSynthesisUtterance | null = null;
-  private isCurrentlySpeaking = false;
-  private onSpeakingChange: ((speaking: boolean) => void) | null = null;
-  private voiceName: string = '';
-  private rate: number = 1.05;
-  private pitch: number = 1.0;
+  private current: SpeechSynthesisUtterance | null=null;
+  private currentAudio: HTMLAudioElement | null = null;
+  private currentAudioUrl: string | null = null;
+  private abortController: AbortController | null = null;
+  private generation=0;
+  private speaking=false;
+  private voiceName='Default Voice';private rate=1;private pitch=1;private language='auto';
+  private ttsEngine: TtsEngine = 'fishaudio';
+  private fishAudioApiKey: string = '';
+  private fishAudioModel: string = 's2.1-pro';
+  private geminiTtsModel='';private geminiTtsVoice='';
+  private changed?: (speaking:boolean)=>void;
+  private outputLevel?: (level:number)=>void;
+  private meterContext:AudioContext|null=null;private meter:AnalyserNode|null=null;private meterFrame:number|null=null;
+  public lastError='';
 
-  constructor() {
-    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
-      this.isSupported = true;
-    }
+  checkAvailability(){
+    return isFishAudioConfigured() || !!this.fishAudioApiKey || (typeof window!=='undefined' && 'speechSynthesis' in window);
   }
 
-  public checkAvailability(): boolean {
-    return this.isSupported;
+  setVoiceSettings(
+    name: string,
+    rate: number,
+    pitch=1,
+    language='auto',
+    ttsEngine: TtsEngine = 'fishaudio',
+    fishAudioApiKey?: string,
+    fishAudioModel?: string,
+    geminiTtsModel?: string,
+    geminiTtsVoice?: string
+  ){
+    this.voiceName=name;
+    this.rate=rate;
+    this.pitch=pitch;
+    this.language=language;
+    this.ttsEngine=ttsEngine;
+    if(fishAudioApiKey!==undefined)this.fishAudioApiKey=fishAudioApiKey;
+    if(fishAudioModel!==undefined)this.fishAudioModel=fishAudioModel;
+    if(geminiTtsModel!==undefined)this.geminiTtsModel=geminiTtsModel;
+    if(geminiTtsVoice!==undefined)this.geminiTtsVoice=geminiTtsVoice;
   }
 
-  public setVoiceSettings(voiceName: string, rate: number, pitch = 1.0) {
-    this.voiceName = voiceName;
-    this.rate = rate;
-    this.pitch = pitch;
+  setOnSpeakingChange(callback:(speaking:boolean)=>void){this.changed=callback;}
+  setOnOutputLevel(callback:(level:number)=>void){this.outputLevel=callback;}
+  private meterAudio(audio:HTMLAudioElement){
+    if(typeof AudioContext==='undefined')return;
+    try{this.meterContext=new AudioContext();const source=this.meterContext.createMediaElementSource(audio);this.meter=this.meterContext.createAnalyser();this.meter.fftSize=1024;source.connect(this.meter);this.meter.connect(this.meterContext.destination);void this.meterContext.resume();const samples=new Float32Array(this.meter.fftSize);let smooth=0;const loop=()=>{if(!this.meter)return;this.meter.getFloatTimeDomainData(samples);let sum=0;for(const value of samples)sum+=value*value;smooth=smooth*.7+Math.min(1,Math.sqrt(sum/samples.length)*5)*.3;this.outputLevel?.(smooth);this.meterFrame=requestAnimationFrame(loop);};loop();}catch{/* Device speech remains usable if a Web Audio meter is unavailable. */}
   }
+  private stopMeter(){if(this.meterFrame!==null)cancelAnimationFrame(this.meterFrame);this.meterFrame=null;this.meter=null;this.outputLevel?.(0);void this.meterContext?.close().catch(()=>{});this.meterContext=null;}
 
-  public setOnSpeakingChange(cb: (speaking: boolean) => void) {
-    this.onSpeakingChange = cb;
-  }
+  async speak(text:string,onStart?:()=>void,onEnd?:()=>void):Promise<boolean>{
+    this.cancel();
+    const generation=++this.generation;
+    this.lastError='';
+    const clean=prepareTextForSpeech(text);
+    if(!clean)return false;
 
-  public speak(
-    text: string,
-    onStart?: () => void,
-    onEnd?: () => void
-  ): boolean {
-    if (!this.checkAvailability()) return false;
-
-    this.cancel(); // Stop any ongoing speech
-
-    const cleanText = prepareTextForSpeech(text);
-    if (!cleanText) return false;
-
-    const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.rate = this.rate;
-    utterance.pitch = this.pitch;
-
-    // Pick chosen or natural fallback voice
-    const voices = window.speechSynthesis.getVoices();
-    let selectedVoice = this.voiceName ? voices.find((v) => v.name === this.voiceName) : null;
-
-    if (!selectedVoice) {
-      selectedVoice = voices.find(
-        (v) =>
-          v.lang.startsWith('en') ||
-          v.lang.startsWith('hi') ||
-          v.name.includes('Natural') ||
-          v.name.includes('Google')
-      ) || voices[0];
-    }
-
-    if (selectedVoice) {
-      utterance.voice = selectedVoice;
-    }
-
-    utterance.onstart = () => {
-      this.isCurrentlySpeaking = true;
-      this.onSpeakingChange?.(true);
-      onStart?.();
-    };
-
-    utterance.onend = () => {
-      this.isCurrentlySpeaking = false;
-      this.currentUtterance = null;
-      this.onSpeakingChange?.(false);
-      onEnd?.();
-    };
-
-    utterance.onerror = (e) => {
-      this.isCurrentlySpeaking = false;
-      this.currentUtterance = null;
-      this.onSpeakingChange?.(false);
-      onEnd?.();
-    };
-
-    this.currentUtterance = utterance;
-    window.speechSynthesis.speak(utterance);
-    return true;
-  }
-
-  public cancel() {
-    if (!this.checkAvailability()) return;
-    window.speechSynthesis.cancel();
-    this.isCurrentlySpeaking = false;
-    this.currentUtterance = null;
-    this.onSpeakingChange?.(false);
-  }
-
-  public isSpeaking(): boolean {
-    return this.isCurrentlySpeaking;
-  }
-}
-
-/**
- * Microphone Web Audio Analyser
- * Captures real-time RMS sound levels from the user's mic for audio-reactive avatars
- */
-export class MicrophoneAudioAnalyser {
-  private audioContext: AudioContext | null = null;
-  private analyser: AnalyserNode | null = null;
-  private mediaStream: MediaStream | null = null;
-  private source: MediaStreamAudioSourceNode | null = null;
-  private animFrameId: number | null = null;
-  private onLevelCallback: ((level: number) => void) | null = null;
-  private isAnalyzing = false;
-
-  public setOnLevel(callback: (level: number) => void) {
-    this.onLevelCallback = callback;
-  }
-
-  public async start(): Promise<boolean> {
-    if (typeof window === 'undefined' || !navigator?.mediaDevices?.getUserMedia) {
-      return false;
+    // 1. Gemini TTS; on failure fall through to Fish Audio (if configured), then device speech.
+    if(this.ttsEngine==='gemini'){
+      try{
+        this.abortController=new AbortController();
+        const buffer=await synthesizeGeminiSpeech(clean,{model:this.geminiTtsModel||undefined,voice:this.geminiTtsVoice||undefined,signal:this.abortController.signal});
+        if(generation!==this.generation)return false;
+        return await this.playBuffer(buffer,'audio/wav','Gemini',clean,generation,onStart,onEnd);
+      }catch{
+        if(generation!==this.generation)return false;
+      }
     }
 
-    try {
-      if (!this.mediaStream) {
-        this.mediaStream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          }
+    // 2. Try Fish Audio TTS if enabled and key is available
+    const fishKey=(this.fishAudioApiKey || getFishAudioKey() || '').trim();
+    if(this.ttsEngine!=='device' && (fishKey||isFishAudioConfigured())){
+      try{
+        this.abortController=new AbortController();
+        const buffer=await synthesizeFishAudio(clean,{
+          apiKey:fishKey,
+          model:this.fishAudioModel || getFishAudioModel(),
+          signal:this.abortController.signal,
         });
+        if(generation!==this.generation)return false;
+        return await this.playBuffer(buffer,'audio/mp3','Fish Audio',clean,generation,onStart,onEnd);
+      }catch{
+        if(generation!==this.generation)return false;
+        // Fish Audio failure is recoverable. Keep the primary UI conversation uninterrupted.
+        const fallback=await this.speakDevice(clean,generation,onStart,onEnd);
+        this.lastError=fallback?'':'Fish Audio is unavailable and device speech could not play.';
+        return fallback;
       }
+    }
 
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!this.audioContext) {
-        this.audioContext = new AudioCtx();
-      }
+    // 3. Default / Fallback: Device Web Speech Synthesis
+    return await this.speakDevice(clean,generation,onStart,onEnd);
+  }
 
-      if (this.audioContext.state === 'suspended') {
-        await this.audioContext.resume();
-      }
+  /** Plays synthesized audio; if the WebView cannot play it, falls back to device speech. */
+  private playBuffer(buffer:ArrayBuffer,mime:string,label:string,clean:string,generation:number,onStart?:()=>void,onEnd?:()=>void):Promise<boolean>{
+        const blob=new Blob([buffer],{type:mime});
+        const audioUrl=URL.createObjectURL(blob);
+        this.currentAudioUrl=audioUrl;
+        const audio=new Audio(audioUrl);
+        this.currentAudio=audio;
+        audio.playbackRate=Math.min(1.4,Math.max(0.8,this.rate));
 
-      if (!this.analyser) {
-        this.analyser = this.audioContext.createAnalyser();
-        this.analyser.fftSize = 256;
-        this.analyser.smoothingTimeConstant = 0.65;
-        this.source = this.audioContext.createMediaStreamSource(this.mediaStream);
-        this.source.connect(this.analyser);
-      }
+        const cleanup=()=>{
+          if(this.currentAudio===audio)this.currentAudio=null;
+          if(this.currentAudioUrl===audioUrl){
+            try{URL.revokeObjectURL(audioUrl);}catch{}
+            this.currentAudioUrl=null;
+          }
+        };
 
-      this.isAnalyzing = true;
-      this.loop();
-      return true;
-    } catch (e) {
-      console.warn('Microphone audio analyser error:', e);
+        return new Promise<boolean>((resolve)=>{
+          let resolved=false;
+          audio.onplay=()=>{
+            if(generation!==this.generation)return;
+            this.meterAudio(audio);
+            this.speaking=true;
+            this.changed?.(true);
+            onStart?.();
+          };
+          audio.onended=()=>{
+            if(generation!==this.generation)return;
+            this.stopMeter();
+            this.speaking=false;
+            this.changed?.(false);
+            cleanup();
+            onEnd?.();
+            if(!resolved){resolved=true;resolve(true);}
+          };
+          audio.onerror=()=>{
+            this.stopMeter();
+            cleanup();
+            if(!resolved){
+              resolved=true;
+              this.speakDevice(clean,generation,onStart,onEnd).then(ok=>{if(!ok)this.lastError=`${label} and device speech could not play.`;else this.lastError='';resolve(ok);});
+            }
+          };
+          audio.play().catch(()=>{
+            this.stopMeter();
+            cleanup();
+            if(!resolved){
+              resolved=true;
+              this.speakDevice(clean,generation,onStart,onEnd).then(ok=>{if(!ok)this.lastError=`${label} and device speech could not start.`;else this.lastError='';resolve(ok);});
+            }
+          });
+        });
+  }
+
+  private async speakDevice(clean:string,generation:number,onStart?:()=>void,onEnd?:()=>void):Promise<boolean>{
+    // A late failed network/audio callback must not restart speech after mute/cancel.
+    if(generation!==this.generation)return false;
+    if(typeof window==='undefined'||!('speechSynthesis' in window)){
+      if(!this.lastError)this.lastError='Speech output is unavailable on this device.';
       return false;
     }
+    let voices=window.speechSynthesis.getVoices();
+    if(!voices.length){
+      await new Promise<void>(resolve=>{const done=()=>{clearTimeout(timer);window.speechSynthesis.removeEventListener('voiceschanged',done);resolve();};const timer=setTimeout(done,1200);window.speechSynthesis.addEventListener('voiceschanged',done);});
+      if(generation!==this.generation)return false;voices=window.speechSynthesis.getVoices();
+    }
+    const voice=selectDeviceVoice(voices,this.voiceName,clean,this.language);
+    const utterance=new SpeechSynthesisUtterance(clean);this.current=utterance;
+    if(voice){utterance.voice=voice;utterance.lang=voice.lang;}
+    else{utterance.lang=/[\u0900-\u097f]/u.test(clean)?'hi-IN':'en-IN';}
+    utterance.rate=Math.min(1.4,Math.max(.8,this.rate));utterance.pitch=this.pitch;
+    utterance.onstart=()=>{if(generation!==this.generation)return;this.speaking=true;this.changed?.(true);onStart?.();};
+    const finish=()=>{if(generation!==this.generation)return;this.speaking=false;this.current=null;this.changed?.(false);onEnd?.();};
+    utterance.onend=finish;utterance.onerror=()=>{if(!this.lastError)this.lastError='Device speech could not play. Text replies still work.';finish();};
+    try{window.speechSynthesis.speak(utterance);return true;}catch{this.current=null;this.lastError="Device speech could not start. Text replies still work.";return false;}
   }
 
-  private loop = () => {
-    if (!this.isAnalyzing || !this.analyser) return;
-
-    const dataArray = new Uint8Array(this.analyser.frequencyBinCount);
-    this.analyser.getByteFrequencyData(dataArray);
-
-    let sum = 0;
-    for (let i = 0; i < dataArray.length; i++) {
-      sum += dataArray[i];
+  cancel(){
+    this.generation++;
+    this.stopMeter();
+    if(this.abortController){
+      try{this.abortController.abort();}catch{}
+      this.abortController=null;
     }
-    const avg = sum / dataArray.length;
-    const normalized = Math.min(1.0, Math.max(0, avg / 128));
-
-    this.onLevelCallback?.(normalized);
-    this.animFrameId = requestAnimationFrame(this.loop);
-  };
-
-  public stop() {
-    this.isAnalyzing = false;
-    if (this.animFrameId) {
-      cancelAnimationFrame(this.animFrameId);
-      this.animFrameId = null;
+    if(this.currentAudio){
+      try{this.currentAudio.pause();this.currentAudio.currentTime=0;this.currentAudio.src='';}catch{}
+      this.currentAudio=null;
     }
-    if (this.source) {
-      try {
-        this.source.disconnect();
-      } catch (e) {}
-      this.source = null;
+    if(this.currentAudioUrl){
+      try{URL.revokeObjectURL(this.currentAudioUrl);}catch{}
+      this.currentAudioUrl=null;
     }
-    if (this.mediaStream) {
-      this.mediaStream.getTracks().forEach((track) => track.stop());
-      this.mediaStream = null;
-    }
-    if (this.audioContext && this.audioContext.state !== 'closed') {
-      try {
-        this.audioContext.close();
-      } catch (e) {}
-      this.audioContext = null;
-    }
-    this.analyser = null;
-    this.onLevelCallback?.(0);
+    if(this.current){this.current.onend=null;this.current.onerror=null;this.current.onstart=null;}
+    this.current=null;this.speaking=false;
+    if(typeof window!=='undefined'&&'speechSynthesis' in window)window.speechSynthesis.cancel();
   }
+  isSpeaking(){return this.speaking;}
 }
 
-// Master VoiceEngine coordinating recognition, synthesis, analyser, and barge-in
+/** One cancellable microphone stream. RMS/peak samples stay in the browser. */
+export class MicrophoneAudioAnalyser {
+  private context:AudioContext|null=null;private stream:MediaStream|null=null;private source:MediaStreamAudioSourceNode|null=null;
+  private analyser:AnalyserNode|null=null;private frame:number|null=null;private epoch=0;private pending:Promise<boolean>|null=null;
+  private onLevel?: (level:number)=>void;private onSample?: (rms:number,peak:number,now:number)=>void;
+  public lastError="";
+  getStream(){return this.stream;}
+  setOnLevel(callback:(level:number)=>void){this.onLevel=callback;}
+  setOnSample(callback:(rms:number,peak:number,now:number)=>void){this.onSample=callback;}
+  start(detectClaps=false):Promise<boolean>{
+    if(this.stream?.getAudioTracks().some(track=>track.readyState==='live'))return Promise.resolve(true);if(this.pending)return this.pending;
+    if(this.stream)this.stop();this.lastError="";
+    const epoch=++this.epoch;
+    this.pending=(async()=>{
+      try{
+        if(!navigator.mediaDevices?.getUserMedia)throw new Error("Microphone capture is unavailable in this runtime. Use the desktop app or a secure localhost/HTTPS page.");
+        const stream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:!detectClaps,autoGainControl:false}});
+        if(epoch!==this.epoch){stream.getTracks().forEach(t=>t.stop());return false;}
+        this.stream=stream;this.context=new AudioContext();await this.context.resume();
+        if(epoch!==this.epoch)return false;
+        this.analyser=this.context.createAnalyser();this.analyser.fftSize=2048;
+        this.source=this.context.createMediaStreamSource(stream);this.source.connect(this.analyser);
+        const samples=new Float32Array(this.analyser.fftSize);let smoothed=0;
+        const loop=()=>{
+          if(epoch!==this.epoch||!this.analyser)return;
+          this.analyser.getFloatTimeDomainData(samples);let sum=0,peak=0;
+          for(const value of samples){sum+=value*value;peak=Math.max(peak,Math.abs(value));}
+          const rms=Math.sqrt(sum/samples.length);smoothed=smoothed*.7+Math.min(1,rms*5)*.3;
+          this.onLevel?.(smoothed);this.onSample?.(rms,peak,performance.now());
+          if(epoch===this.epoch)this.frame=requestAnimationFrame(loop);
+        };loop();return true;
+      }catch(error){if(epoch===this.epoch){
+        const name=error instanceof Error?error.name:'';
+        this.lastError=name==='NotAllowedError'?'Microphone access was denied by the system or WebView. Allow AXION microphone access and retry.':name==='NotFoundError'?'No microphone device was found. Connect a microphone and retry.':name==='NotReadableError'?'The microphone could not be opened. Check whether another application is using it.':error instanceof Error?error.message:'Microphone initialization failed.';
+        this.stop();}return false;}
+      finally{if(epoch===this.epoch)this.pending=null;}
+    })();return this.pending;
+  }
+  stop(){this.epoch++;this.pending=null;if(this.frame!==null)cancelAnimationFrame(this.frame);this.frame=null;this.source?.disconnect();this.source=null;this.stream?.getTracks().forEach(t=>t.stop());this.stream=null;void this.context?.close().catch(()=>{});this.context=null;this.analyser=null;this.onLevel?.(0);}
+}
+
+export interface ActivationStatus { micOn:boolean; waitingForWake:boolean; mode:VoiceSettings['listeningMode']; sleeping?:boolean }
+/** How long AXION stays awake for a command after waking or replying, before needing its name again. */
+export const FOLLOW_UP_MS=12000;
 export class VoiceEngine {
-  public recognitionAdapter: SpeechRecognitionAdapter;
-  public synthesisAdapter: SpeechSynthesisAdapter;
-  public audioAnalyser: MicrophoneAudioAnalyser;
-  private state: VoiceState = 'idle';
-  private events: VoiceEngineEvents = {};
-  private active = false;
-
-  constructor(events?: VoiceEngineEvents) {
-    if (events) this.events = events;
-    this.recognitionAdapter = new SpeechRecognitionAdapter();
-    this.synthesisAdapter = new SpeechSynthesisAdapter();
-    this.audioAnalyser = new MicrophoneAudioAnalyser();
-
-    // Wire genuine microphone sound level to event callback
-    this.audioAnalyser.setOnLevel((level) => {
-      if (this.state === 'listening' || this.state === 'transcribing') {
-        this.events.onAudioLevel?.(level);
-      }
+  public recognitionAdapter=new SpeechRecognitionAdapter();public synthesisAdapter=new SpeechSynthesisAdapter();public audioAnalyser=new MicrophoneAudioAnalyser();
+  private events:VoiceEngineEvents={};private state:VoiceState='idle';private active=false;private accepting=false;private epoch=0;
+  private settings:VoiceSettings={language:'auto',voiceName:'Default Voice',speed:1,autoSpeak:true,listeningMode:'continuous',doubleClap:false};
+  private status:ActivationStatus={micOn:false,waitingForWake:false,mode:'continuous'};
+  private listeners=new Set<()=>void>();private claps=new DoubleClapDetector();private wakeTimeout:ReturnType<typeof setTimeout>|undefined;
+  private outputEnabled=true;
+  /** Asleep after "AXION so jao": nothing but the name wakes it, in every talk mode. */
+  private sleeping=false;
+  isSleeping(){return this.sleeping;}
+  constructor(events?:VoiceEngineEvents){
+    this.events=events || {};
+    this.audioAnalyser.setOnLevel(level=>this.events.onAudioLevel?.(this.state==='listening'?level:0));
+    this.audioAnalyser.setOnSample((rms,peak,now)=>{this.recognitionAdapter.sample(rms,now);if(this.active&&this.status.waitingForWake&&this.settings.doubleClap&&this.claps.sample(rms,peak,now))this.activate();});
+    this.recognitionAdapter.setCallbacks((text,final)=>this.receive(text,final),state=>{
+      if(state==='listening')this.publish({micOn:true});
+      if(this.state!=='speaking'&&this.state!=='thinking')this.setState(state);
+    },error=>{this.stopListening();this.events.onError?.(error);});
+    this.recognitionAdapter.setLiveAudioCallbacks({
+      onOutputLevel:level=>this.events.onAudioLevel?.(this.state==='speaking'?level:0),
+      onOutputStarted:()=>{this.accepting=false;this.setState('speaking');},
+      onOutputEnded:()=>{if(this.state==='speaking')this.completeTurn();}
     });
-
-    this.synthesisAdapter.setOnSpeakingChange((speaking) => {
-      if (speaking) {
-        this.setState('speaking');
-        // Do not emit synthetic audio levels. Living Core uses its designed CSS speaking rhythm.
-        this.events.onAudioLevel?.(0);
-      } else {
-        this.events.onAudioLevel?.(0);
-        if (this.active) {
-          // Resume listening after speaking
-          this.setState('listening');
-          this.recognitionAdapter.start();
-        } else {
-          this.setState('idle');
-        }
-      }
-    });
-
-    this.recognitionAdapter.setCallbacks(
-      (transcript, isFinal) => {
-        // Barge-in: if AI is speaking and user speaks, stop AI speech immediately
-        if (this.synthesisAdapter.isSpeaking()) {
-          this.synthesisAdapter.cancel();
-          this.events.onBargeIn?.();
-        }
-
-        this.events.onTranscript?.(transcript, isFinal);
-
-        if (isFinal) {
-          this.setState('thinking');
-        }
-      },
-      (recState) => {
-        if (this.state !== 'speaking' && this.state !== 'thinking') {
-          this.setState(recState);
-        }
-      },
-      (err) => {
-        this.events.onError?.(err);
-      }
+    this.synthesisAdapter.setOnOutputLevel(level=>this.events.onAudioLevel?.(this.state==='speaking'?level:0));
+  }
+  private modeOverride?:VoiceSettings['listeningMode'];
+  /** Background wake pins wake-word mode so later configure() calls with the saved talk mode can't widen it. */
+  setModeOverride(mode?:VoiceSettings['listeningMode']){this.modeOverride=mode;}
+  get backgroundWake(){return this.modeOverride==='wake-word';}
+  configure(input:VoiceSettings,outputEnabled=true){
+    const settings={...input,listeningMode:this.modeOverride??input.listeningMode};
+    this.settings={...settings};this.recognitionAdapter.setRecordedEnabled(!!settings.groqTranscription);
+    this.outputEnabled=outputEnabled;
+    this.publish({mode:settings.listeningMode});
+    this.recognitionAdapter.setMode(settings.listeningMode);
+    this.recognitionAdapter.setLanguage(recognitionLocale(settings.language),settings.language==='auto');
+    this.synthesisAdapter.setVoiceSettings(
+      settings.voiceName,
+      settings.speed,
+      1,
+      'auto',
+      settings.ttsEngine || 'fishaudio',
+      settings.fishAudioApiKey,
+      settings.fishAudioModel,
+      settings.geminiTtsModel,
+      settings.geminiTtsVoice
     );
   }
-
-  public isSupported(): boolean {
-    return this.recognitionAdapter.checkAvailability() || this.synthesisAdapter.checkAvailability();
+  subscribe=(listener:()=>void)=>{this.listeners.add(listener);return()=>{this.listeners.delete(listener);};};
+  getActivationStatus=()=>this.status;
+  private publish(update:Partial<ActivationStatus>){this.status={...this.status,...update};this.listeners.forEach(fn=>fn());}
+  setEvents(events:VoiceEngineEvents){this.events=events;}
+  setState(state:VoiceState){this.state=state;this.events.onStateChange?.(state);}
+  getState(){return this.state;}
+  isSupported(){return this.isRecognitionSupported()||this.isSynthesisSupported();}
+  isRecognitionSupported(){return this.recognitionAdapter.checkAvailability();}
+  isSynthesisSupported(){return this.synthesisAdapter.checkAvailability();}
+  startListening(){
+    if(this.active&&this.accepting)return;
+    this.active=true;this.accepting=true;this.synthesisAdapter.cancel();this.setState('idle');this.publish({waitingForWake:this.sleeping||this.settings.listeningMode==='wake-word'});this.claps.reset();void this.capture();
   }
-
-  public isRecognitionSupported(): boolean {
-    return this.recognitionAdapter.checkAvailability();
+  private async capture(){
+    const epoch=++this.epoch;
+    if(!this.isRecognitionSupported()){this.stopListening();this.events.onError?.('Speech recognition is unavailable in this runtime. Microphone permission alone does not enable transcription. Configure the LiveKit voice connection or use a browser with speech recognition.');return;}
+    const ok=await this.audioAnalyser.start(this.settings.listeningMode==='wake-word'&&!!this.settings.doubleClap);if(epoch!==this.epoch||!this.active)return;
+    if(!ok){this.stopListening();this.events.onError?.(this.audioAnalyser.lastError || 'Microphone initialization failed.');return;}
+    this.publish({micOn:true});this.recognitionAdapter.setInputStream(this.audioAnalyser.getStream());this.recognitionAdapter.start();
   }
-
-  public isSynthesisSupported(): boolean {
-    return this.synthesisAdapter.checkAvailability();
-  }
-
-  public setEvents(events: VoiceEngineEvents) {
-    this.events = events;
-  }
-
-  public setState(newState: VoiceState) {
-    this.state = newState;
-    this.events.onStateChange?.(newState);
-  }
-
-  public getState(): VoiceState {
-    return this.state;
-  }
-
-  public startListening() {
-    this.active = true;
-    if (this.synthesisAdapter.isSpeaking()) {
-      this.synthesisAdapter.cancel();
+  private receive(text:string,final:boolean){
+    if(!this.accepting||this.state==='speaking')return;
+    // Silence and background noise come back as ".", "So", "Thank you": never act on them.
+    if(final&&isNoiseTranscript(text)){this.events.onHeard?.(text,false);this.recognitionAdapter.restartIgnoredTurn();return;}
+    if(this.status.waitingForWake||this.sleeping){
+      if(!final)return;const wake=parseWakePhrase(text);this.events.onHeard?.(text,wake.matched);if(!wake.matched){this.recognitionAdapter.restartIgnoredTurn();return;}
+      if(this.sleeping){this.sleeping=false;this.publish({sleeping:false});}
+      if(!wake.remainder){this.activate(text);return;}
+      this.publish({waitingForWake:false});text=wake.remainder;
     }
-    this.recognitionAdapter.start();
-    this.audioAnalyser.start();
+    if(final&&detectSleepCommand(text)){this.sleep(text);return;}
+    if(final){this.accepting=false;clearTimeout(this.wakeTimeout);this.recognitionAdapter.stop();this.audioAnalyser.stop();this.publish({micOn:false});this.setState('thinking');}
+    this.events.onTranscript?.(text,final);
   }
-
-  public stopListening() {
-    this.active = false;
-    this.recognitionAdapter.stop();
-    this.audioAnalyser.stop();
-    this.setState('idle');
+  private activate(phrase?:string){
+    if(!this.active)return;this.claps.reset();this.publish({waitingForWake:false});
+    if(this.sleeping){this.sleeping=false;this.publish({sleeping:false});}
+    if(this.events.onWake?.(phrase))return;
+    const ready=()=>{if(!this.active)return;this.accepting=true;void this.capture();clearTimeout(this.wakeTimeout);this.wakeTimeout=setTimeout(()=>{if(this.active&&this.accepting)this.publish({waitingForWake:true});},FOLLOW_UP_MS);};
+    const acknowledgement=wakeAcknowledgement(phrase);
+    if(this.outputEnabled)void this.speak(acknowledgement,ready,false);else ready();
   }
-
-  public speak(text: string, onDone?: () => void) {
-    this.recognitionAdapter.stop(); // Stop listening while speaking to avoid feedback
-    this.synthesisAdapter.speak(
-      text,
-      () => this.setState('speaking'),
-      () => {
-        if (this.active) {
-          this.setState('listening');
-          this.recognitionAdapter.start();
-        } else {
-          this.setState('idle');
-        }
-        onDone?.();
-      }
-    );
+  /** "AXION so jao" / "chup ho jao" / "go to sleep": stop talking, then listen only for the name. */
+  sleep(phrase='',announce=true){
+    this.sleeping=true;this.publish({sleeping:true});clearTimeout(this.wakeTimeout);this.synthesisAdapter.cancel();this.events.onSleep?.();
+    const rest=()=>{if(!this.active){this.setState('idle');return;}this.accepting=true;this.publish({waitingForWake:true});this.setState('idle');void this.capture();};
+    if(announce&&this.outputEnabled)void this.speak(sleepAcknowledgement(phrase).speechText,rest,false);else{this.epoch++;rest();}
   }
-
-  public interrupt() {
-    this.synthesisAdapter.cancel();
-    this.events.onAudioLevel?.(0);
-    if (this.active) {
-      this.setState('listening');
-      this.recognitionAdapter.start();
-    } else {
-      this.setState('idle');
-    }
+  /** PTT release drains the final recognition result; mute/end aborts it. */
+  finishListening(){this.active=false;clearTimeout(this.wakeTimeout);this.recognitionAdapter.stop(true);this.audioAnalyser.stop();this.publish({micOn:false});}
+  stopListening(){this.active=false;this.accepting=false;this.epoch++;clearTimeout(this.wakeTimeout);this.recognitionAdapter.stop();this.audioAnalyser.stop();this.claps.reset();this.publish({micOn:false,waitingForWake:false});this.setState('idle');}
+  pauseForResponse(){this.accepting=false;this.epoch++;this.recognitionAdapter.stop();this.audioAnalyser.stop();this.publish({micOn:false});this.setState('thinking');}
+  completeTurn(){
+    if(!this.active){this.setState('idle');return;}
+    this.accepting=true;
+    // Wake mode keeps a short follow-up window after each reply ("Chrome kholo" → "YouTube kholo")
+    // before going back to sleep; onboarding (continueConversation) stays awake until it finishes.
+    const wake=this.settings.listeningMode==='wake-word',hold=!!this.events.continueConversation?.();
+    clearTimeout(this.wakeTimeout);
+    if(this.sleeping){this.publish({waitingForWake:true});this.setState('idle');void this.capture();return;}
+    if(wake&&!hold)this.wakeTimeout=setTimeout(()=>{if(this.active&&this.accepting)this.publish({waitingForWake:true});},FOLLOW_UP_MS);
+    this.publish({waitingForWake:false});this.setState('idle');void this.capture();
   }
-
-  public destroy() {
-    this.active = false;
-    this.events.onAudioLevel?.(0);
-    this.recognitionAdapter.stop();
-    this.synthesisAdapter.cancel();
-    this.audioAnalyser.stop();
+  async speak(text:string,onDone?:()=>void,resume=true){
+    const epoch=++this.epoch;this.accepting=false;this.recognitionAdapter.stop();this.audioAnalyser.stop();this.publish({micOn:false});
+    const done=()=>{if(epoch!==this.epoch)return;if(this.synthesisAdapter.lastError)this.events.onError?.(this.synthesisAdapter.lastError);if(resume)this.completeTurn();else this.setState('idle');onDone?.();};
+    const started=await this.synthesisAdapter.speak(text,()=>this.setState('speaking'),done);
+    if(!started&&epoch===this.epoch)done();
   }
+  interrupt(){this.epoch++;this.synthesisAdapter.cancel();this.events.onAudioLevel?.(0);this.completeTurn();}
+  destroy(){this.stopListening();this.synthesisAdapter.cancel();this.events={};}
 }
-
-export const globalVoiceEngine = new VoiceEngine();
+export const globalVoiceEngine=new VoiceEngine();

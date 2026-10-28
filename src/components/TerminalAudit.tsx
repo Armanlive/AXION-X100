@@ -1,3 +1,5 @@
+import { NativeTerminalPane } from './NativeTerminalPane';
+import { hasNativeTerminal } from '../utils/nativeTerminal';
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useAxionStore } from '../store/useAxionStore';
 import { TerminalSession, PanelDockPosition, OutputLogEvent } from '../types';
@@ -89,7 +91,7 @@ export const TerminalAudit: React.FC<TerminalAuditProps> = ({ isDockedPanel = fa
   const splitSession =
     terminalSessions.find((s) => s.id === splitTerminalId);
 
-  const isTauriDesktop = typeof window !== 'undefined' && Boolean((window as any).__TAURI__);
+  const isTauriDesktop = hasNativeTerminal();
 
   const handleStartRename = (session: TerminalSession) => {
     setEditingSessionId(session.id);
@@ -111,7 +113,7 @@ export const TerminalAudit: React.FC<TerminalAuditProps> = ({ isDockedPanel = fa
       if (other) {
         setSplitTerminalId(other.id);
       } else {
-        const newId = createTerminalSession('OpenCode', 'opencode');
+        const newId = createTerminalSession('PowerShell', 'powershell');
         setSplitTerminalId(newId);
       }
     }
@@ -207,7 +209,7 @@ export const TerminalAudit: React.FC<TerminalAuditProps> = ({ isDockedPanel = fa
                 isTauriDesktop ? 'bg-cyan-400 shadow-[0_0_6px_rgba(6,182,212,0.8)]' : 'bg-emerald-400'
               }`}
             />
-            <span>{isTauriDesktop ? 'LOCAL TERMINAL (PowerShell)' : 'WEB SANDBOX (Node 20)'}</span>
+            <span>{isTauriDesktop ? 'NATIVE SHELL HOST' : 'BROWSER PREVIEW · NO LOCAL SHELL'}</span>
           </div>
 
           {/* Dev server live notification shortcut */}
@@ -338,7 +340,7 @@ export const TerminalAudit: React.FC<TerminalAuditProps> = ({ isDockedPanel = fa
                     : '⚡ COMMAND EXECUTION CONFIRMATION'}
                 </span>
                 <span className="text-[10px] px-1.5 py-0.2 rounded bg-black/40 text-zinc-300 border border-zinc-700">
-                  {pendingProposedCommand.origin} ({pendingProposedCommand.agentName || 'Boss Agent'})
+                  {pendingProposedCommand.origin} ({pendingProposedCommand.agentName || 'Supreme Core'})
                 </span>
               </div>
               <div className="text-[11px] text-zinc-300 flex items-center gap-2 mt-0.5">
@@ -560,31 +562,8 @@ export const TerminalAudit: React.FC<TerminalAuditProps> = ({ isDockedPanel = fa
 
           {/* Terminal Console Execution Surface (Supports Single or Split view) */}
           <div className="flex-1 flex overflow-hidden">
-            {/* Primary Active Session */}
-            {activeSession && (
-              <TerminalConsolePane
-                session={activeSession}
-                onRunCommand={(cmd) => runCommandInSession(activeSession.id, cmd, 'manual')}
-                onClear={() => clearSessionLogs(activeSession.id)}
-                onKill={() => killRunningProcessInSession(activeSession.id)}
-                onOpenPreview={() => togglePreviewPanel(true)}
-              />
-            )}
-
-            {/* Split Session if active */}
-            {splitSession && (
-              <div className="flex-1 flex border-l border-zinc-800 overflow-hidden">
-                <TerminalConsolePane
-                  session={splitSession}
-                  isSplit={true}
-                  onRunCommand={(cmd) => runCommandInSession(splitSession.id, cmd, 'manual')}
-                  onClear={() => clearSessionLogs(splitSession.id)}
-                  onKill={() => killRunningProcessInSession(splitSession.id)}
-                  onClose={() => setSplitTerminalId(null)}
-                  onOpenPreview={() => togglePreviewPanel(true)}
-                />
-              </div>
-            )}
+            {activeSession && <NativeTerminalPane key={activeSession.id} session={activeSession} />}
+            {splitSession && splitSession.id !== activeSession?.id && <div className="flex-1 flex min-w-0 border-l border-slate-800"><NativeTerminalPane key={splitSession.id} session={splitSession}/></div>}
           </div>
         </div>
       )}
@@ -796,262 +775,3 @@ export const TerminalAudit: React.FC<TerminalAuditProps> = ({ isDockedPanel = fa
   );
 };
 
-// Sub-component: Individual Console Window for a Terminal Session
-interface TerminalConsolePaneProps {
-  session: TerminalSession;
-  isSplit?: boolean;
-  onRunCommand: (command: string) => void;
-  onClear: () => void;
-  onKill: () => void;
-  onClose?: () => void;
-  onOpenPreview?: () => void;
-}
-
-const TerminalConsolePane: React.FC<TerminalConsolePaneProps> = ({
-  session,
-  isSplit = false,
-  onRunCommand,
-  onClear,
-  onKill,
-  onClose,
-  onOpenPreview
-}) => {
-  const [cmdInput, setCmdInput] = useState('');
-  const [historyIndex, setHistoryIndex] = useState<number>(-1);
-  const [autoScroll, setAutoScroll] = useState(true);
-  const [copied, setCopied] = useState(false);
-  const logEndRef = useRef<HTMLDivElement | null>(null);
-  const inputRef = useRef<HTMLInputElement | null>(null);
-
-  useEffect(() => {
-    if (autoScroll) {
-      logEndRef.current?.scrollIntoView({ behavior: 'auto' });
-    }
-  }, [session.logs, autoScroll]);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!cmdInput.trim() || session.status === 'running') return;
-    onRunCommand(cmdInput);
-    setCmdInput('');
-    setHistoryIndex(-1);
-  };
-
-  // Up/Down History Navigation
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      const hist = session.history || [];
-      if (hist.length === 0) return;
-      const nextIdx = historyIndex === -1 ? hist.length - 1 : Math.max(0, historyIndex - 1);
-      setHistoryIndex(nextIdx);
-      setCmdInput(hist[nextIdx] || '');
-    } else if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      const hist = session.history || [];
-      if (historyIndex === -1) return;
-      const nextIdx = historyIndex + 1;
-      if (nextIdx >= hist.length) {
-        setHistoryIndex(-1);
-        setCmdInput('');
-      } else {
-        setHistoryIndex(nextIdx);
-        setCmdInput(hist[nextIdx] || '');
-      }
-    } else if (e.key === 'c' && (e.ctrlKey || e.metaKey) && session.status === 'running') {
-      e.preventDefault();
-      onKill();
-    }
-  };
-
-  const handleCopyLogs = () => {
-    navigator.clipboard.writeText(session.logs.join('\n'));
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
-  };
-
-  return (
-    <div className="flex-1 flex flex-col overflow-hidden bg-[#070709] relative">
-      {/* Pane Sub-header */}
-      <div className="px-3 py-1.5 bg-[#09090b] border-b border-zinc-850 flex items-center justify-between text-[11px] text-zinc-500 font-mono">
-        <div className="flex items-center gap-2">
-          <span className="font-semibold text-zinc-200">{session.name}</span>
-          <span className="text-[10px] px-1.5 py-0.2 rounded bg-zinc-800 text-zinc-300">
-            {session.shell || session.type}
-          </span>
-          <span className="text-[10px] text-zinc-500 font-sans hidden md:inline truncate max-w-xs" title={session.cwd}>
-            {session.cwd}
-          </span>
-        </div>
-
-        {/* Action quick buttons */}
-        <div className="flex items-center gap-1.5">
-          {session.status === 'running' && (
-            <button
-              onClick={onKill}
-              className="px-2 py-0.5 rounded text-[10px] font-mono bg-rose-950/60 text-rose-300 border border-rose-800/80 hover:bg-rose-900 transition flex items-center gap-1"
-              title="Terminate running process (Ctrl+C)"
-            >
-              <Square className="w-2.5 h-2.5 fill-current" />
-              <span>Kill / Ctrl+C</span>
-            </button>
-          )}
-
-          <button
-            onClick={() => onRunCommand('npm run build')}
-            disabled={session.status === 'running'}
-            className="px-1.5 py-0.2 rounded text-[10px] font-mono text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition disabled:opacity-50"
-          >
-            build
-          </button>
-          <button
-            onClick={() => onRunCommand('npm test')}
-            disabled={session.status === 'running'}
-            className="px-1.5 py-0.2 rounded text-[10px] font-mono text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition disabled:opacity-50"
-          >
-            test
-          </button>
-          <button
-            onClick={() => onRunCommand('git status')}
-            disabled={session.status === 'running'}
-            className="px-1.5 py-0.2 rounded text-[10px] font-mono text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800 transition disabled:opacity-50"
-          >
-            git
-          </button>
-
-          <button
-            onClick={handleCopyLogs}
-            className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition"
-            title="Copy terminal logs"
-          >
-            {copied ? <Check className="w-2.5 h-2.5 text-emerald-400" /> : <Copy className="w-2.5 h-2.5" />}
-          </button>
-
-          <button
-            onClick={onClear}
-            className="p-1 rounded text-zinc-500 hover:text-zinc-200 hover:bg-zinc-800 transition"
-            title="Clear output"
-          >
-            <Trash2 className="w-2.5 h-2.5" />
-          </button>
-
-          {isSplit && onClose && (
-            <button
-              onClick={onClose}
-              className="p-1 rounded text-zinc-500 hover:text-rose-400 hover:bg-zinc-800 transition"
-              title="Close split pane"
-            >
-              <X className="w-2.5 h-2.5" />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Truthful Platform Notice */}
-      <div className="px-3 py-1 bg-[#101014] border-b border-zinc-800/80 flex items-center justify-between text-[10px] text-zinc-400 font-mono">
-        <span className="flex items-center gap-1.5 text-zinc-400">
-          <Shield className="w-3 h-3 text-cyan-400" />
-          <span>Native terminal execution is not implemented yet in Phase 2 (Audit Mode)</span>
-        </span>
-        <span className="text-[9px] text-zinc-500">Read-only sandbox</span>
-      </div>
-
-      {/* Logs stream with ANSI color rendering */}
-      <div className="flex-1 p-3 overflow-y-auto space-y-1 text-zinc-300 leading-relaxed select-text font-mono text-xs">
-        {session.logs.map((log, idx) => {
-          const isCommand = log.startsWith('>');
-          const isError =
-            log.includes('error') ||
-            log.includes('Build failed') ||
-            log.includes('FATAL') ||
-            log.includes('FAILED');
-          const isSuccess =
-            log.includes('Success') ||
-            log.includes('PASS') ||
-            log.includes('Clean') ||
-            log.includes('built in') ||
-            log.includes('Zero type errors');
-          const isUrl = log.includes('http://localhost:') || log.includes('http://127.0.0.1:');
-
-          return (
-            <div
-              key={idx}
-              className={`${
-                isCommand
-                  ? 'text-cyan-300 font-bold mt-1.5 flex items-center gap-1.5'
-                  : isError
-                  ? 'text-rose-400 bg-rose-950/20 px-1.5 py-0.5 rounded'
-                  : isSuccess
-                  ? 'text-emerald-400'
-                  : isUrl
-                  ? 'text-amber-300 font-medium'
-                  : 'text-zinc-400'
-              }`}
-            >
-              {isCommand && <ChevronRight className="w-3 h-3 text-cyan-400 shrink-0" />}
-              <span>{log}</span>
-              {isUrl && onOpenPreview && (
-                <button
-                  onClick={onOpenPreview}
-                  className="ml-2 px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 text-[10px] inline-flex items-center gap-1 font-sans"
-                >
-                  <span>Open Preview</span>
-                  <ExternalLink className="w-2.5 h-2.5" />
-                </button>
-              )}
-            </div>
-          );
-        })}
-
-        {session.status === 'running' && (
-          <div className="flex items-center gap-2 text-emerald-400 text-xs py-1">
-            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-            <span>Running: {session.activeProcessName || 'Executing process...'} (Ctrl+C to cancel)</span>
-          </div>
-        )}
-
-        <div ref={logEndRef} />
-      </div>
-
-      {/* Command Prompt Form: PS C:\Path> _ */}
-      <form
-        onSubmit={handleSubmit}
-        className="p-2 border-t border-zinc-850 bg-[#09090b] flex items-center gap-2 shrink-0"
-      >
-        <span className="text-zinc-500 font-mono text-xs flex items-center gap-1 shrink-0">
-          <span className="text-cyan-400 font-medium truncate max-w-[200px]" title={session.cwd}>
-            {session.type === 'powershell'
-              ? `PS ${session.cwd}>`
-              : session.type === 'cmd'
-              ? `${session.cwd}>`
-              : `${session.cwd} $`}
-          </span>
-          <ChevronRight className="w-3.5 h-3.5 text-zinc-400" />
-        </span>
-        <input
-          ref={inputRef}
-          type="text"
-          value={cmdInput}
-          onChange={(e) => setCmdInput(e.target.value)}
-          onKeyDown={handleKeyDown}
-          disabled={session.status === 'running'}
-          placeholder={
-            session.status === 'running'
-              ? 'Process running... (Press Ctrl+C to abort)'
-              : 'Run command (e.g. npm run dev, npm run build, git status, npm test)...'
-          }
-          className="flex-1 bg-transparent text-zinc-100 font-mono text-xs focus:outline-none placeholder-zinc-600 disabled:opacity-50"
-        />
-        {session.status === 'running' && (
-          <button
-            type="button"
-            onClick={onKill}
-            className="px-2 py-0.5 rounded text-[10px] font-mono bg-rose-900/60 text-rose-200 border border-rose-700/80 hover:bg-rose-800 transition"
-          >
-            Cancel (Ctrl+C)
-          </button>
-        )}
-      </form>
-    </div>
-  );
-};

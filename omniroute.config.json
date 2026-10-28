@@ -1,0 +1,42 @@
+{
+  "$schema": "./omniroute.schema.json",
+  "name": "Axion-Oslo OmniRoute Gateway",
+  "description": "Local Zero-Cost AI Router (AXION-X100 + RuFlo + OpenRouter Free)",
+  "gateway": {
+    "enabled": true,
+    "baseUrl": "http://localhost:2828/v1",
+    "apiKey": "$env:OMNIROUTE_API_KEY",
+    "apiKeyEnv": "OMNIROUTE_API_KEY",
+    "healthPath": "/v1/models",
+    "healthTimeoutMs": 3000,
+    "heartBeatIntervalMs": 60000
+  },
+  "routing": {
+    "mode": "dynamic",
+    "fallbackOnRateLimit": true,
+    "failoverProviders": [
+      "openrouter/free",
+      "gemini/2.0-flash"
+    ],
+    "paidFallbackBlocked": true
+  },
+  "models": {
+    "primary": "openrouter/openrouter/free",
+    "fallback": [
+      "google/gemini-2.0-flash-lite",
+      "meta-llama/llama-3.2-11b-vision-instruct",
+      " Qwen/Qwen2.5-7B-Instruct"
+    ]
+  },
+  "limits": {
+    "maxContextTokens": 100000,
+    "maxTokensPerResponse": 4096,
+    "rateLimitBurst": 10,
+    "rateLimitPerMinute": 60
+  },
+  "log": {
+    "level": "info",
+    "format": "text",
+    "saveTo": ".logs/omniroute.log"
+  }
+}

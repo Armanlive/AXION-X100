@@ -34,6 +34,8 @@ export const Sidebar: React.FC = () => {
     chatSessions,
     activeChatId,
     createNewChat,
+    chatCategoryFilter,
+    setChatCategoryFilter,
     switchChat,
     renameChat,
     deleteChat,
@@ -65,8 +67,21 @@ export const Sidebar: React.FC = () => {
   const primaryProvider = cloudProviders.find((p) => p.isPrimary) || cloudProviders[0];
   const passedPilotCount = pilotTasks.filter((t) => t.status === 'passed').length;
 
+  const workspaceSessions = chatSessions.filter(
+    (s) => s.isWorkspaceBound || (s.workspaceId && s.workspaceId !== 'default' && s.workspaceId !== '')
+  );
+  const generalSessions = chatSessions.filter(
+    (s) => !s.isWorkspaceBound && (!s.workspaceId || s.workspaceId === 'default' || s.workspaceId === '')
+  );
+
   // Live case-insensitive search across title, user prompts, and agent responses
-  const filteredSessions = chatSessions.filter((s) => {
+  const filteredSessions = (
+    chatCategoryFilter === 'workspace'
+      ? workspaceSessions
+      : chatCategoryFilter === 'general'
+      ? generalSessions
+      : chatSessions
+  ).filter((s) => {
     if (!chatSearchQuery.trim()) return true;
     const query = chatSearchQuery.toLowerCase();
     const titleMatch = s.title.toLowerCase().includes(query);
@@ -375,6 +390,41 @@ export const Sidebar: React.FC = () => {
               )}
             </div>
 
+            {/* Category Filter Tabs */}
+            <div className="mb-1.5 p-0.5 rounded-lg bg-zinc-900 border border-zinc-800 flex items-center gap-0.5 text-[10px] font-mono">
+              <button
+                onClick={() => setChatCategoryFilter('all')}
+                className={`flex-1 py-0.5 px-1 rounded text-center transition ${
+                  chatCategoryFilter === 'all'
+                    ? 'bg-zinc-800 text-white font-medium shadow-sm'
+                    : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                All ({chatSessions.length})
+              </button>
+              <button
+                onClick={() => setChatCategoryFilter('workspace')}
+                className={`flex-1 py-0.5 px-1 rounded text-center truncate transition ${
+                  chatCategoryFilter === 'workspace'
+                    ? 'bg-zinc-800 text-white font-medium shadow-sm'
+                    : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+                title={activeWorkspace ? `Workspace: ${activeWorkspace.name}` : 'Workspace chats'}
+              >
+                Project ({workspaceSessions.length})
+              </button>
+              <button
+                onClick={() => setChatCategoryFilter('general')}
+                className={`flex-1 py-0.5 px-1 rounded text-center transition ${
+                  chatCategoryFilter === 'general'
+                    ? 'bg-zinc-800 text-white font-medium shadow-sm'
+                    : 'text-zinc-500 hover:text-zinc-300'
+                }`}
+              >
+                General ({generalSessions.length})
+              </button>
+            </div>
+
             {/* Dedicated Search Chats Control */}
             <div className="mb-2 shrink-0">
               <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-zinc-900 border border-zinc-800 text-xs focus-within:border-zinc-700 transition">
@@ -413,6 +463,7 @@ export const Sidebar: React.FC = () => {
               {filteredSessions.map((session) => {
                 const isActive = session.id === activeChatId && currentTab === 'workspace';
                 const isEditing = editingChatId === session.id;
+                const isWsChat = Boolean(session.isWorkspaceBound || (session.workspaceId && session.workspaceId !== 'default' && session.workspaceId !== ''));
 
                 return (
                   <div
@@ -450,7 +501,18 @@ export const Sidebar: React.FC = () => {
                     ) : (
                       <>
                         <div className="truncate pr-2 flex-1">
-                          <span className="truncate block text-xs">{session.title}</span>
+                          <div className="flex items-center gap-1.5 min-w-0">
+                            <span className="truncate block text-xs">{session.title}</span>
+                            {isWsChat ? (
+                              <span className="text-[9px] px-1 py-0.2 rounded bg-cyan-950/70 text-cyan-300 border border-cyan-800/40 font-mono shrink-0 truncate max-w-[60px]">
+                                {session.workspaceName || 'WS'}
+                              </span>
+                            ) : (
+                              <span className="text-[9px] px-1 py-0.2 rounded bg-zinc-850 text-zinc-500 font-mono shrink-0">
+                                Gen
+                              </span>
+                            )}
+                          </div>
                           <span className="text-[10px] text-zinc-600 font-mono block">
                             {session.updatedAt}
                           </span>
