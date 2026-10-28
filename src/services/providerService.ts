@@ -1,3 +1,4 @@
+import {assertInferenceAllowed} from '../utils/hybridMode';
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { providerPayload, providerText } from '../utils/providerRouting';
 
@@ -124,6 +125,7 @@ export async function saveProvider(provider:string,apiKey:string,accountId:strin
 }
 
 export async function requestProvider(provider: string, model: string, system: string, contents: any[], timeoutSecs?: number): Promise<string> {
+  assertInferenceAllowed(provider);
   const signal = timeoutSecs ? AbortSignal.timeout(timeoutSecs * 1000) : undefined;
   if (provider === 'fishaudio') {
     throw Error('Fish Audio is a speech provider, not a chat model.');

@@ -47,3 +47,25 @@ it('builds prioritized fallback chains across configured free providers and hono
 });
 
 
+
+// Mode commands are handled before any provider call, including on a disconnected desktop.
+import {detectModeCommand, setInferenceMode, requiresLocalInference, assertInferenceAllowed} from '../utils/hybridMode.ts';
+it('voice mode switches are exact commands, not quoted project instructions', () => {
+ assert.equal(detectModeCommand('AXION, switch to offline mode'), 'offline');
+ assert.equal(detectModeCommand('Go local'), 'offline');
+ assert.equal(detectModeCommand('Switch to online mode.'), 'online');
+ assert.equal(detectModeCommand('Explain how to go local'), null);
+ assert.equal(detectModeCommand('Go local and delete files'), null);
+});
+it('offline mode fails closed for every cloud adapter and reconnect does not override it', () => {
+ try {
+  setInferenceMode('offline');
+  assert.equal(requiresLocalInference(true), true);
+  for(const type of ['gemini','anthropic','openai','deepseek']) assert.throws(() => assertInferenceAllowed(type), /cloud inference is disabled/);
+  assert.doesNotThrow(() => assertInferenceAllowed('ollama'));
+  setInferenceMode('online');
+  assert.equal(requiresLocalInference(false), true);
+  assert.equal(requiresLocalInference(true), false);
+  assert.doesNotThrow(() => assertInferenceAllowed('openai'));
+ } finally { setInferenceMode('online'); }
+});

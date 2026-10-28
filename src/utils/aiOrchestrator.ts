@@ -1,5 +1,6 @@
+import {detectModeCommand, setInferenceMode, requiresLocalInference} from './hybridMode';
 import {requestProvider} from '../services/providerService';
-import {resolveRoute, getTaskRoutedChain, type RoutingStrategy} from './providerRouting';
+import {resolveRoute, getTaskRoutedChain, getFallbackChain, type RoutingStrategy} from './providerRouting';
 import {eccManager,guardRawContext,type ECCTelemetry} from '../core/context/eccManager';
 import {selectRelevantFiles,buildSourceExcerpts,formatSourceExcerpts} from './projectContext';
 import {detectAppIntent,appClarifications,clarificationQuestion,launchConfirmation,launchFailure,launchApp,detectBrowserCommand,openInBrowser,detectFolderCommand,openFolder,folderConfirmation,folderFailure,browserConfirmation,rememberBrowser,type LaunchableApp,type LaunchTarget} from '../services/commandService';
@@ -148,6 +149,12 @@ export async function orchestrateAIRequest(userPrompt: string, history: ChatMess
 }, callbacks: StreamCallbacks): Promise<void> {
   const finishLocal=(text:string)=>{callbacks.onChunk(text);callbacks.onComplete(text,text);};
   if(!context.visualInput&&detectSleepCommand(userPrompt)){const ack=sleepAcknowledgement(userPrompt);callbacks.onSleep?.();callbacks.onChunk(ack.text);callbacks.onComplete(ack.text,ack.speechText);return;}
+  const modeCommand = context.visualInput ? null : detectModeCommand(userPrompt);
+  if (modeCommand) {
+    setInferenceMode(modeCommand);
+    finishLocal(modeCommand === 'offline' ? 'Offline mode, Sir. Inference stays on local Ollama models.' : 'Online mode, Sir. Cloud routing is available.');
+    return;
+  }
   const greeting=context.visualInput?null:localGreeting(userPrompt);
   if(greeting){finishLocal(greeting);return;}
   // "AXION, open Chrome" \u2192 "open Chrome": the name is how the user addresses AXION, not part of the command.
@@ -235,7 +242,7 @@ export async function orchestrateAIRequest(userPrompt: string, history: ChatMess
     }
   }
 
-  const {tier,chain:fallbackChain} = getTaskRoutedChain(
+  const {tier,chain:taskChain} = getTaskRoutedChain(
     userPrompt,
     context.selectedModel,
     context.models || [],
@@ -247,6 +254,15 @@ export async function orchestrateAIRequest(userPrompt: string, history: ChatMess
       vision: !!context.visualInput || !!context.attachments?.some(a => a.data !== undefined)
     }
   );
+  const localOnly = requiresLocalInference();
+  const localChain = getFallbackChain(context.selectedModel, context.models, context.providers)
+    .filter(c => c.provider.type === 'ollama');
+  const hasVisual = !!context.visualInput || !!context.attachments?.some(a => a.data !== undefined);
+  const fallbackChain = localOnly ? (hasVisual ? [] : localChain) : [...taskChain, ...(!hasVisual && context.autoFallbackEnabled !== false ? localChain.filter(l => !taskChain.some(c => c.provider.id === l.provider.id && c.modelId === l.modelId)) : [])];
+  if (localOnly && !fallbackChain.length) {
+    callbacks.onError(hasVisual ? 'Offline vision is not supported by the configured local adapter. No image was sent.' : 'No local model is configured. Start Ollama and select an installed model in Cloud Brain. Cloud inference remains disabled.');
+    return;
+  }
   if ((context.visualInput || context.attachments?.some(a => a.data !== undefined)) && fallbackChain.length === 0) {
     callbacks.onError('Analysing an image needs a Gemini model in Cloud Brain. No image was sent.');
     return;
@@ -369,7 +385,7 @@ SOURCE FILES:
 ${sourceSection||'(none selected for this request)'}
 ${refreshFailures.length?`Fresh disk reads failed for: ${refreshFailures.join(', ')}. Any supplied copies are cached, not verified current. Do not claim a fresh inspection of those files.`:''}
 ${errorExcerpts.length?formatErrorContext(errorExcerpts,hasWorkspace)+'\n':''}${SAME_TURN_RULE}
-${recallSection?recallSection+'\n':''}${auditSection?auditSection+'\n':''}${context.visualInput||audit?'':DESKTOP_ACTION_RULES+'\n'}${hasWorkspace?CODE_EDIT_RULES+'\n':''}${hasWorkspace&&!audit?RESEARCH_RULES+'\n':''}- Maintain seamless context: treat the user as your collaborator. Never sound like a generic detached chatbot.`;
+${recallSection?recallSection+'\n':''}${auditSection?auditSection+'\n':''}${context.visualInput||audit?'':DESKTOP_ACTION_RULES+'\n'}${hasWorkspace?CODE_EDIT_RULES+'\n':''}${hasWorkspace&&!audit?RESEARCH_RULES+'\n':''}- Be concise, calm and direct with Arman. Use a natural butler tone, acknowledge completed work only when tool results verify it, and never expose raw tool markup.\n- Maintain seamless context: treat the user as your collaborator. Never sound like a generic detached chatbot.`;
 
   // Race the candidates instead of waiting on each in turn: a slow model gets company
   // after a few seconds, and providers that just failed are tried last.
@@ -463,10 +479,10 @@ ${recallSection?recallSection+'\n':''}${auditSection?auditSection+'\n':''}${cont
       });
       const finalText=evolution.lastRaw===full?intro:recoverConversationReply(evolution.lastRaw).text;
       const diffs=diffsBetween(files,evolution.files,evolution.touched,intro.split('\n')[0].replace(/[#*`_]/g,'').trim()||'AXION edit',`#AX-${Date.now().toString().slice(-4)}`);
-      if(diffs.length)callbacks.onProposedEdits?.(diffs,evolution.verified);
+      if(diffs.length && evolution.verified === 'passed' && !evolution.stoppedBecause)callbacks.onProposedEdits?.(diffs,evolution.verified);
       const notes=[
         describeEvolution(evolution),
-        diffs.length?`**${diffs.length} file change${diffs.length>1?'s':''} ready for review.** Check the diff${diffs.length>1?'s':''} below and approve to save.`:'No file changes were produced.'
+        diffs.length && evolution.verified === 'passed' && !evolution.stoppedBecause?`**${diffs.length} file change${diffs.length>1?'s':''} ready for review.** Check the diff${diffs.length>1?'s':''} below and approve to save.`:diffs.length?'Changes withheld until all shadow checks pass.':'No file changes were produced.'
       ].join('\n\n');
       reply={...reply,text:`${finalText===intro?intro:`${intro}\n\n${finalText}`}\n\n${notes}`};
     }
