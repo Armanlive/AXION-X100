@@ -1,3 +1,4 @@
+import {PluginsHub} from '../PluginsHub';
 import {CodeStudio} from '../CodeStudio';
 import React, { useState } from 'react';
 import { useAxionStore } from '../../store/useAxionStore';
@@ -53,6 +54,7 @@ export const MobileShell: React.FC = () => {
             </header>
 
             <div className="flex-1 overflow-auto">
+              {currentTab === 'plugins' && <PluginsHub />}
               {currentTab === 'agents' && <AgentLab />}
               {currentTab === 'cloud_brain' && <CloudRouter />}
               {currentTab === 'diffs' && <DiffReviewGateTab />}

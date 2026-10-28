@@ -122,3 +122,30 @@ it('runs the real project checks for a scan and hands the output to the model', 
   const web = await runDesktopAction({type: 'run_checks'}, deps({runChecks: async () => null}));
   assert.match(web.reply.text, /needs the AXION desktop app/);
 });
+
+import {INTEGRATIONS,connectIntegration,requestIntegration} from '../services/integrationService.ts';
+import {setInferenceMode} from '../utils/hybridMode.ts';
+it('integration actions validate service IDs and pass actual results through the desktop bridge',async()=>{
+ assert.equal(validateAction({type:'integration_read',service:'unknown'}),null);
+ assert.equal(validateAction({type:'integration_write',service:'github',title:'x'}),null);
+ const action=validateAction({type:'integration_write',service:'github',resource:'owner/repo',title:'Fix',content:'Details'})!;
+ let written=false;
+ const result=await runDesktopAction(action,deps({integration:async(service,operation,resource,title,content)=>{
+  assert.deepEqual([service,operation,resource,title,content],['github','write','owner/repo','Fix','Details']);written=true;
+  return {summary:'github creation succeeded.',items:[{id:'123',title:'Fix'}]};
+ }}));
+ assert.equal(written,true);assert.equal(result.reply.text,'github creation succeeded.');assert.match(result.observation!,/123/);
+});
+it('plugin credentials use native IPC and never enter browser persistence; offline requests fail before IPC',async()=>{
+ const calls:{command:string;args:any}[]=[];
+ (globalThis as any).isTauri=true;
+ (globalThis as any).window={isTauri:true,__TAURI_INTERNALS__:{invoke:async(command:string,args:any)=>{calls.push({command,args});return {summary:'Verified',items:[]};}}};
+ try{
+  setInferenceMode('online');
+  assert.equal(INTEGRATIONS.length,7);
+  await connectIntegration('github','fixture-not-a-real-token');
+  assert.equal(calls[0].command,'integration_connect');assert.equal(calls[0].args.token,'fixture-not-a-real-token');
+  setInferenceMode('offline');await assert.rejects(()=>requestIntegration('github','read'),/online mode/);
+  assert.equal(calls.length,1);
+ }finally{setInferenceMode('online');delete (globalThis as any).window;delete (globalThis as any).isTauri;}
+});

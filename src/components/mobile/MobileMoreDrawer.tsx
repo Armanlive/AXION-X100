@@ -65,6 +65,7 @@ export const MobileMoreDrawer: React.FC<MobileMoreDrawerProps> = ({ isOpen, onCl
         <button className="p-3 text-xs font-mono text-[#00f0ff] hover:underline" onClick={()=>{onClose();useProfileStore.getState().show();}}>
           OPERATOR IDENTITY // View AXION Profile
         </button>
+        <button className="p-3 text-xs text-cyan-200" onClick={()=>handleSelectTab('plugins')}>Customize / Plugins</button>
         {/* Drag Handle & Header */}
         <div className="p-3 pb-2 flex flex-col items-center border-b border-cyan-500/20 shrink-0">
           <div className="w-10 h-1 bg-cyan-500/40 rounded-full mb-3" />

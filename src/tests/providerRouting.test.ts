@@ -110,3 +110,13 @@ it('GitHub import pins raw files to the resolved commit and reports live progres
   await assert.rejects(()=>importGithubProject('owner/repo',()=>{}),/Incomplete/);
  }finally{globalThis.fetch=original;}
 });
+
+import {isLocalVisionModel} from '../utils/providerRouting.ts';
+it('Ollama receives image pixels locally and text-only local models are excluded from vision routes',()=>{
+ const local={...model('ollama'),providerModelId:'qwen2.5vl:7b'};
+ assert.equal(isLocalVisionModel(local),true);
+ assert.equal(isLocalVisionModel({...local,providerModelId:'qwen2.5-coder:7b'}),false);
+ const payload:any=providerPayload('ollama','qwen2.5vl:7b','Describe the photo',[{role:'user',parts:[{text:'What is here?'},{inlineData:{mimeType:'image/jpeg',data:'fixture-image'}}]}]);
+ assert.deepEqual(payload.messages[1].images,['fixture-image']);
+ assert.throws(()=>providerPayload('ollama','qwen2.5vl:7b','s',[{role:'user',parts:[{inlineData:{mimeType:'application/pdf',data:'fixture'}}]}]),/not PDFs/);
+});

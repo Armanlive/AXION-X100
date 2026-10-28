@@ -1,3 +1,4 @@
+import {requiresLocalInference} from '../utils/hybridMode.ts';
 /**
  * "AXION, screen pe kya dikh raha hai?" / "camera se dekho haath mein kya hai".
  * A spoken or typed request grabs one screenshot or one camera frame, only at
@@ -79,9 +80,10 @@ export class VisualConsentSession {
 export const visualConsent = new VisualConsentSession();
 
 export function consentQuestion(source: VisualSource) {
+  const target=requiresLocalInference()?'a local Ollama vision model':'your configured vision provider';
   const text = source === 'screen'
-    ? 'Shall I take a screenshot and show it to Gemini? Say "yes", "always", or "no".'
-    : 'Shall I take one camera photo and show it to Gemini? Say "yes", "always", or "no".';
+    ? `Shall I take a screenshot and show it to ${target}? Say "yes", "always", or "no".`
+    : `Shall I take one camera photo and show it to ${target}? Say "yes", "always", or "no".`;
   return {text, speechText: text};
 }
 
@@ -89,7 +91,10 @@ const decodeTitle = (b64: string) => { try { return new TextDecoder().decode(Uin
 
 export async function captureScreen(): Promise<VisualInput> {
   const {invoke, isTauri} = await import('@tauri-apps/api/core');
-  if (!isTauri()) throw new Error('Screen capture needs the AXION desktop app. In the browser, use Vision → Choose screen/window.');
+  if (!isTauri()) {
+    if(!navigator.mediaDevices?.getDisplayMedia)throw Error('Screen sharing is unavailable in this runtime.');
+    return frameFromMedia(await navigator.mediaDevices.getDisplayMedia({video:true,audio:false}),'One screenshot from the screen/window chosen by the user, captured at their request.');
+  }
   const shot = await invoke<{titleBase64: string; jpegBase64: string}>('capture_screen');
   const title = decodeTitle(shot.titleBase64);
   return {
@@ -98,25 +103,21 @@ export async function captureScreen(): Promise<VisualInput> {
   };
 }
 
-/** One frame: the camera turns on, settles, takes the picture, and turns off. */
-export async function captureCameraFrame(): Promise<VisualInput> {
-  if (!navigator.mediaDevices?.getUserMedia) throw new Error('No camera API in this runtime');
-  const media = await navigator.mediaDevices.getUserMedia({video: {width: {ideal: 1280}, height: {ideal: 720}}, audio: false});
-  try {
-    const video = document.createElement('video');
-    video.muted = true; video.playsInline = true; video.srcObject = media;
-    await video.play();
-    await new Promise(r => setTimeout(r, 700)); // auto-exposure settles
-    const scale = Math.min(1, 1280 / (video.videoWidth || 1280));
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.round((video.videoWidth || 1280) * scale); canvas.height = Math.round((video.videoHeight || 720) * scale);
-    canvas.getContext('2d')?.drawImage(video, 0, 0, canvas.width, canvas.height);
-    video.srcObject = null;
-    return {
-      mimeType: 'image/jpeg', data: canvas.toDataURL('image/jpeg', 0.82).split(',')[1],
-      note: 'This is one photo from the user\'s webcam, taken just now at their request. Answer their question about it directly: what they are holding, wearing, or showing.'
-    };
-  } finally {
-    media.getTracks().forEach(t => t.stop());
-  }
+/** One requested frame; all acquired tracks are released on success and failure. */
+export async function frameFromMedia(media:MediaStream,note:string):Promise<VisualInput>{
+ let video:HTMLVideoElement|undefined;let timer:ReturnType<typeof setTimeout>|undefined;
+ try{
+  video=document.createElement('video');video.muted=true;video.playsInline=true;video.srcObject=media;
+  await Promise.race([video.play(),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error('Video did not become ready.')),5000);})]);
+  if(!video.videoWidth||!video.videoHeight)throw Error('No camera or screen pixels are available yet. Try again.');
+  const scale=Math.min(1,1280/video.videoWidth,720/video.videoHeight);
+  const canvas=document.createElement('canvas');canvas.width=Math.round(video.videoWidth*scale);canvas.height=Math.round(video.videoHeight*scale);
+  const context=canvas.getContext('2d');if(!context)throw Error('Image capture is unavailable.');
+  context.drawImage(video,0,0,canvas.width,canvas.height);
+  return {mimeType:'image/jpeg',data:canvas.toDataURL('image/jpeg',.82).split(',')[1],note};
+ }finally{clearTimeout(timer);if(video){video.pause();video.srcObject=null;}media.getTracks().forEach(track=>track.stop());}
+}
+export async function captureCameraFrame():Promise<VisualInput>{
+ if(!navigator.mediaDevices?.getUserMedia)throw Error('No camera API in this runtime');
+ return frameFromMedia(await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720}},audio:false}),"One photo from the user's webcam, captured just now at their request.");
 }

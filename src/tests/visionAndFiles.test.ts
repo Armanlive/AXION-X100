@@ -71,3 +71,14 @@ it('attachment limits keep one request under the native 8 MB cap', () => {
   assert.throws(() => validateAttachments([{name: 'x.exe', mimeType: 'application/x-msdownload', size: 1, data: 'QUJD'}]), /unsupported/);
   assert.throws(() => validateAttachments(Array.from({length: 9}, (_, i) => ({name: `f${i}.txt`, mimeType: 'text/plain', size: 1, text: 'x'}))), /at most 8/);
 });
+
+import {frameFromMedia} from '../services/visionCapture.ts';
+it('one-shot media capture releases all tracks on frame failure and never fabricates pixels',async()=>{
+ const previous=(globalThis as any).document;let stops=0;let paused=false;
+ const video={muted:false,playsInline:false,srcObject:null,videoWidth:0,videoHeight:0,play:async()=>{},pause:()=>{paused=true;}};
+ (globalThis as any).document={createElement:()=>video};
+ try{
+  await assert.rejects(()=>frameFromMedia({getTracks:()=>[{stop:()=>stops++}]} as unknown as MediaStream,'fixture'),/No camera or screen pixels/);
+  assert.equal(stops,1);assert.equal(paused,true);assert.equal(video.srcObject,null);
+ }finally{(globalThis as any).document=previous;}
+});

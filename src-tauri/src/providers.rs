@@ -39,7 +39,7 @@ pub async fn provider_catalog(window:WebviewWindow,provider:String)->Result<Valu
  Ok(json!({"models":models,"tags":entry["tags"],"partial":rows.len()>500||value["has_more"]==true||value["next"].is_string()||value["nextPageToken"].is_string(),"catalogOnly":entry["catalogOnly"]}))
 }
 #[cfg(windows)]
-fn protect(bytes: &[u8], encrypt: bool) -> Result<Vec<u8>, String> {
+pub(crate) fn protect(bytes: &[u8], encrypt: bool) -> Result<Vec<u8>, String> {
     use windows_sys::Win32::{Security::Cryptography::*, Foundation::LocalFree};
     let input = CRYPT_INTEGER_BLOB { cbData: bytes.len() as u32, pbData: bytes.as_ptr() as *mut u8 };
     let mut output = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
@@ -54,7 +54,7 @@ fn protect(bytes: &[u8], encrypt: bool) -> Result<Vec<u8>, String> {
     }
 }
 #[cfg(not(windows))]
-fn protect(_: &[u8], _: bool) -> Result<Vec<u8>, String> { Err("Secure provider storage is currently supported on Windows desktop".into()) }
+pub(crate) fn protect(_: &[u8], _: bool) -> Result<Vec<u8>, String> { Err("Secure provider storage is currently supported on Windows desktop".into()) }
 fn location(window: &WebviewWindow) -> Result<std::path::PathBuf, String> {
     Ok(window.app_handle().path().app_config_dir().map_err(|_| "Cannot locate app config")?.join("providers.dpapi"))
 }

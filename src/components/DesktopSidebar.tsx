@@ -262,6 +262,7 @@ export const DesktopSidebar: React.FC = () => {
         </div>
       </div>
 
+      <button onClick={()=>{setSpeechMode('chat');setCurrentTab('plugins');}} className="mx-3 my-2 p-2 border border-cyan-500/25 rounded text-xs text-cyan-200" aria-current={currentTab==='plugins'?'page':undefined}>Customize / Plugins</button>
       {/* 3. Projects section: local workspaces with their dedicated threads */}
       <div className="flex-1 overflow-y-auto px-2 py-2 space-y-4">
         <div className="space-y-1">

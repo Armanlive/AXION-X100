@@ -1,3 +1,6 @@
+mod integration_plan;
+mod integration_client;
+mod integrations;
 mod terminal;
 mod providers;
 mod ecc;
@@ -161,6 +164,10 @@ pub fn run() {
             audit::project_inventory,
             audit::project_git,
             screen::capture_screen,
+            integrations::integration_connections,
+            integrations::integration_connect,
+            integrations::integration_disconnect,
+            integrations::integration_request,
             providers::transcribe_audio,
             providers::open_provider_dashboard,
             providers::provider_catalog,

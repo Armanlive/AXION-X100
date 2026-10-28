@@ -88,6 +88,7 @@ function summarizeExchange(replyText: string): string {
 export type TabType =
   | 'workspace'
   | 'code_studio'
+  | 'plugins'
   | 'agents'
   | 'cloud_brain'
   | 'local_workspace'

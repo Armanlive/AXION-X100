@@ -24,7 +24,7 @@ export interface RaceOptions {
   onStart?: (index: number, reason: 'first' | 'hedge' | 'failover') => void;
 }
 
-export const DEFAULT_RACE: RaceOptions = { hedgeMs: 2000, maxParallel: 3, firstTimeoutSecs: 60, otherTimeoutSecs: 45 };
+export const DEFAULT_RACE: RaceOptions = { hedgeMs: 1500, maxParallel: 3, firstTimeoutSecs: 60, otherTimeoutSecs: 45 };
 
 interface Health { cooldownUntil: number; failures: number; latencyMs?: number }
 const HEALTH_KEY = 'axion.providerHealth.v1';

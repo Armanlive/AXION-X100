@@ -133,8 +133,8 @@ export function getFallbackChain(
 
 export function providerPayload(type:string,model:string,system:string,contents:any[]) {
  if(type==='gemini')return {contents,systemInstruction:{parts:[{text:system}]},generationConfig:{temperature:.7,responseMimeType:'application/json'}};
- if(contents.some(c=>c.parts.some((p:any)=>p.inlineData)))throw Error('Visual input currently requires selecting a Gemini model. No image was sent.');
- const messages=[{role:'system',content:system},...contents.map(c=>({role:c.role==='model'?'assistant':'user',content:c.parts.map((p:any)=>p.text||'').join('\n')}))];
+ if(type!=='ollama' && contents.some(c=>c.parts.some((p:any)=>p.inlineData)))throw Error('Visual input currently requires selecting a Gemini model. No image was sent.');
+ const messages=[{role:'system',content:system},...contents.map(c=>({role:c.role==='model'?'assistant':'user',content:c.parts.map((p:any)=>p.text||'').join('\n'),...(type==='ollama' && c.parts.some((p:any)=>p.inlineData)?{images:c.parts.filter((p:any)=>p.inlineData).map((p:any)=>{if(!/^image\/(jpeg|png|webp)$/.test(p.inlineData.mimeType))throw Error('Local vision supports images, not PDFs. No file was sent.');return p.inlineData.data;})}:{})}))];
  return {model,messages,stream:false,...(type==='ollama'?{format:'json'}:{})};
 }
 
@@ -173,7 +173,7 @@ export function getTaskRoutedChain(
   // Frame analysis is heavy inference: primary brain first, and only providers that can see.
   if (options?.vision) {
     const chain = getFallbackChain(selectedModel, allModels, providers, { strategy: autoFallback ? 'smartest' : options.strategy, autoFallback });
-    return { tier: 'heavy', chain: chain.filter(c => VISION_PROVIDERS.has(c.provider.type)) };
+    return { tier: 'heavy', chain: chain.filter(c => VISION_PROVIDERS.has(c.provider.type) || (c.provider.type==='ollama' && isLocalVisionModel(c.model))) };
   }
   const tier = classifyTaskTier(prompt);
   if (tier === 'heavy' || !autoFallback) {
@@ -223,3 +223,6 @@ export function buildModelPool(models: AIModel[], providers: CloudProvider[], pa
   }
   return pool;
 }
+
+/** Local text-only models must never receive image payloads. */
+export function isLocalVisionModel(model:AIModel):boolean {return model.capabilities?.includes('vision')===true || /(?:qwen[^/]*vl|llava|moondream|gemma3|vision)/i.test(model.providerModelId||model.id);}

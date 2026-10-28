@@ -1,6 +1,7 @@
+import {requestIntegration} from '../services/integrationService';
 import {detectModeCommand, setInferenceMode, requiresLocalInference} from './hybridMode';
 import {requestProvider} from '../services/providerService';
-import {resolveRoute, getTaskRoutedChain, getFallbackChain, type RoutingStrategy} from './providerRouting';
+import {isLocalVisionModel, resolveRoute, getTaskRoutedChain, getFallbackChain, type RoutingStrategy} from './providerRouting';
 import {eccManager,guardRawContext,type ECCTelemetry} from '../core/context/eccManager';
 import {selectRelevantFiles,buildSourceExcerpts,formatSourceExcerpts} from './projectContext';
 import {detectAppIntent,appClarifications,clarificationQuestion,launchConfirmation,launchFailure,launchApp,detectBrowserCommand,openInBrowser,detectFolderCommand,openFolder,folderConfirmation,folderFailure,browserConfirmation,rememberBrowser,type LaunchableApp,type LaunchTarget} from '../services/commandService';
@@ -54,6 +55,7 @@ function desktopDeps(callbacks: StreamCallbacks, activeProjectPath?: string): De
     try{return await invoke<T>(command,args);}catch(e){throw new Error(typeof e==='string'?e:e instanceof Error?e.message:String(e));}
   };
   return {
+    integration:requestIntegration,
     findProject:(query,drive)=>native('find_project',{query,drive:drive??null}),
     openProject:async(path)=>{if(!callbacks.onOpenProject)throw new Error('projects can only be opened from the chat');await callbacks.onOpenProject(path);},
     openInstalledApp:(name)=>native('open_installed_app',{name}),
@@ -259,9 +261,11 @@ export async function orchestrateAIRequest(userPrompt: string, history: ChatMess
   const localChain = getFallbackChain(context.selectedModel, context.models, context.providers)
     .filter(c => c.provider.type === 'ollama');
   const hasVisual = !!context.visualInput || !!context.attachments?.some(a => a.data !== undefined);
-  const fallbackChain = localOnly ? (hasVisual ? [] : localChain) : [...taskChain, ...(!hasVisual && context.autoFallbackEnabled !== false ? localChain.filter(l => !taskChain.some(c => c.provider.id === l.provider.id && c.modelId === l.modelId)) : [])];
+  const localVisualChain=localChain.filter(c=>isLocalVisionModel(c.model));
+  const hasPdf=context.attachments?.some(a=>a.mimeType==='application/pdf');
+  const fallbackChain = localOnly ? (hasVisual ? (hasPdf?[]:localVisualChain) : localChain) : [...taskChain, ...(!hasVisual && context.autoFallbackEnabled !== false ? localChain.filter(l => !taskChain.some(c => c.provider.id === l.provider.id && c.modelId === l.modelId)) : [])];
   if (localOnly && !fallbackChain.length) {
-    callbacks.onError(hasVisual ? 'Offline vision is not supported by the configured local adapter. No image was sent.' : 'No local model is configured. Start Ollama and select an installed model in Cloud Brain. Cloud inference remains disabled.');
+    callbacks.onError(hasVisual ? 'No compatible local vision model is configured (or a PDF was supplied). Select an installed Ollama vision model. No file was sent.' : 'No local model is configured. Start Ollama and select an installed model in Cloud Brain. Cloud inference remains disabled.');
     return;
   }
   if ((context.visualInput || context.attachments?.some(a => a.data !== undefined)) && fallbackChain.length === 0) {
