@@ -21,7 +21,7 @@ export const ChatCoreRail: React.FC = () => {
     ro.observe(panel);
     return () => ro.disconnect();
   }, []);
-  const { isWorking, speechState, activeWorkspace } = useAxionStore();
+  const { isWorking, speechState, activeWorkspace, currentTab } = useAxionStore();
   const state: LivingCoreState =
     speechState === 'speaking' ? 'speaking' : isWorking ? 'thinking' : speechState === 'listening' ? 'listening' : 'idle';
 
@@ -37,7 +37,7 @@ export const ChatCoreRail: React.FC = () => {
       <AxionLivingCore state={state} size="lg" />
       <div className="text-center font-mono">
         <div className="text-[11px] font-bold tracking-widest text-[#00f0ff] uppercase">{label}</div>
-        {activeWorkspace && <div className="text-[10px] text-cyan-400/60 truncate max-w-[16rem]">{activeWorkspace.name}</div>}
+        {currentTab === 'code_studio' && activeWorkspace && <div className="text-[10px] text-cyan-400/60 truncate max-w-[16rem]">{activeWorkspace.name}</div>}
       </div>
 
     </aside>

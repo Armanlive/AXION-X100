@@ -69,3 +69,44 @@ it('offline mode fails closed for every cloud adapter and reconnect does not ove
   assert.doesNotThrow(() => assertInferenceAllowed('openai'));
  } finally { setInferenceMode('online'); }
 });
+
+
+import {hasProjectScope} from '../utils/workspaceScope.ts';
+import {githubRepository,githubSources} from '../utils/githubProject.ts';
+import {zipSync,strToU8} from 'fflate';
+it('general chat cannot inherit files from a mounted project or a stale coding session',()=>{
+ const session={isWorkspaceBound:true,workspaceId:'alpha'};
+ assert.equal(hasProjectScope('workspace',session,'alpha'),false);
+ assert.equal(hasProjectScope('code_studio',session,'beta'),false);
+ assert.equal(hasProjectScope('code_studio',{isWorkspaceBound:false},'alpha'),false);
+ assert.equal(hasProjectScope('code_studio',session,'alpha'),true);
+ assert.equal(hasProjectScope('code_studio',undefined,undefined),false);
+});
+it('GitHub linking accepts exact repository identities and rejects credentials and foreign hosts',()=>{
+ assert.equal(githubRepository('https://github.com/Armanlive/AXION-X100').url,'https://github.com/Armanlive/AXION-X100');
+ assert.equal(githubRepository('owner/repository.git').repo,'repository');
+ for(const value of ['https://evil.test/a/b','https://user:pass@github.com/a/b','a/../b','a/b/tree/main'])assert.throws(()=>githubRepository(value));
+});
+it('GitHub imports source files without credentials, dependency caches or path traversal',()=>{
+ const files=githubSources(zipSync({'repo/src/main.ts':strToU8('export const ready=true;'),'repo/.env':strToU8('SECRET=fixture'),'repo/node_modules/a.ts':strToU8('cache')}));
+ assert.deepEqual(Object.keys(files),['src/main.ts']);
+ assert.throws(()=>githubSources(zipSync({'repo/../escape.ts':strToU8('no')})),/Unsafe/);
+});
+
+import {importGithubProject} from '../utils/githubProject.ts';
+it('GitHub import pins raw files to the resolved commit and reports live progress',async()=>{
+ const original=globalThis.fetch;const calls:string[]=[];const steps:string[]=[];
+ const sha='a'.repeat(40);
+ try{
+  globalThis.fetch=async(input)=>{
+   const url=String(input);calls.push(url);
+   return url.startsWith('https://api.github.com/')?Response.json({sha,tree:[{type:'blob',mode:'100644',path:'src/main.ts',size:5},{type:'blob',mode:'100644',path:'.env',size:4}]}):new Response('hello');
+  };
+  const project=await importGithubProject('owner/repo',s=>steps.push(s));
+  assert.equal(project.files['src/main.ts'],'hello');assert.equal(project.files['.env'],undefined);
+  assert.equal(calls[1],`https://raw.githubusercontent.com/owner/repo/${sha}/src/main.ts`);
+  assert.ok(steps.length>=2);
+  globalThis.fetch=async()=>Response.json({sha,tree:[],truncated:true});
+  await assert.rejects(()=>importGithubProject('owner/repo',()=>{}),/Incomplete/);
+ }finally{globalThis.fetch=original;}
+});

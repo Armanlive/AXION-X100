@@ -1,3 +1,4 @@
+import {hasProjectScope} from '../utils/workspaceScope.ts';
 
 import { providerForModel, buildModelPool, loadPaidPoolConsent, type RoutingStrategy } from '../utils/providerRouting';
 import { migrateProviderCredentials, saveProvider, requestProvider, providerConfigs, loadSavedProviders, saveSavedProviders, verifyProviderCatalog } from '../services/providerService';
@@ -86,6 +87,7 @@ function summarizeExchange(replyText: string): string {
 
 export type TabType =
   | 'workspace'
+  | 'code_studio'
   | 'agents'
   | 'cloud_brain'
   | 'local_workspace'
@@ -581,7 +583,7 @@ const initialBossLocked = loadInitialBossLocked();
 const initialChatData = loadInitialChatSessions();
 
 export const useAxionStore = create<AxionState>((set, get) => ({
-  currentTab: 'workspace',
+  currentTab: initialChatData.sessions.find(s=>s.id===initialChatData.activeId)?.isWorkspaceBound ? 'code_studio' : 'workspace',
   projectPath: persistedActiveWs?.absolutePath || '',
   files: {},
   filesIndex: [],
@@ -714,9 +716,16 @@ export const useAxionStore = create<AxionState>((set, get) => ({
 
   // Layout & Navigation Actions
   setCurrentTab: (tab) => {
+    if(get().isWorking)return;
     set({ currentTab: tab });
-    // Seamless binding: entering the Chat view always rebinds the session to the active workspace
-    if (tab === 'workspace') get().bindActiveChatToWorkspace();
+    if(tab === 'workspace' || tab === 'code_studio'){
+      const code = tab === 'code_studio';
+      const session=get().chatSessions.find(s=>s.id===get().activeChatId);
+      if(!session || Boolean(session.isWorkspaceBound)!==code || (code && session.workspaceId!==get().activeWorkspace?.id)){
+        const next=get().chatSessions.find(s=>Boolean(s.isWorkspaceBound)===code && (!code || s.workspaceId===get().activeWorkspace?.id));
+        if(next)get().switchChat(next.id);else get().createNewChat(code?'workspace':'general');
+      }
+    }
   },
   selectFile: (path) => {
     const { selectedFilePath, unsavedFileChanges, activeWorkspace } = get();
@@ -1116,8 +1125,9 @@ export const useAxionStore = create<AxionState>((set, get) => ({
   // Real Persistent Chat History Actions
   // Real Persistent Chat History Actions (Decoupled Workspace vs General Chats)
   createNewChat: (forceCategory?: 'workspace' | 'general') => {
+    if(get().isWorking)return;
     const ws = get().activeWorkspace;
-    const isWs = forceCategory === 'workspace';
+    const isWs = forceCategory ? forceCategory === 'workspace' : get().currentTab === 'code_studio';
     const newId = `chat-${Date.now()}`;
     const newSession: ChatSession = {
       id: newId,
@@ -1135,7 +1145,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       chatSessions: updatedSessions,
       activeChatId: newId,
       messages: [],
-      currentTab: 'workspace',
+      currentTab: isWs ? 'code_studio' : 'workspace',
       activeDiff: null
     });
     try {
@@ -1198,13 +1208,18 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       localStorage.setItem(STORAGE_KEY_TOKEN_USAGE, JSON.stringify(updated));
     } catch {}
   },
-  switchChat: (id) => {
+  switchChat: async (id) => {
     const session = get().chatSessions.find((s) => s.id === id);
-    if (!session) return;
+    if (!session || get().isWorking) return;
+    if(session.isWorkspaceBound && session.workspaceId!==get().activeWorkspace?.id){
+      if(!get().workspaces.some(w=>w.id===session.workspaceId)){set({scanStatusMessage:'This project is unavailable. Open its folder in Code Studio.'});return;}
+      try{await get().switchWorkspace(session.workspaceId);}catch{return;}
+      if(get().activeWorkspace?.id!==session.workspaceId)return;
+    }
     set({
       activeChatId: id,
       messages: session.messages,
-      currentTab: 'workspace'
+      currentTab: session.isWorkspaceBound ? 'code_studio' : 'workspace'
     });
   },
   renameChat: (id, newTitle) => {
@@ -1259,7 +1274,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
   // Bind the active chat session to the currently active local workspace
   bindActiveChatToWorkspace: () => {
     const { activeChatId, activeWorkspace, chatSessions } = get();
-    if (!activeWorkspace) return;
+    if (!activeWorkspace || get().currentTab !== 'code_studio') return;
     // Only when the open project changes. Afterwards the user's own choice wins: opening a
     // general chat from Recents must not bounce back to the project thread.
     if (boundWorkspaceId === activeWorkspace.id) return;
@@ -2708,7 +2723,9 @@ export const useAxionStore = create<AxionState>((set, get) => ({
     if(visualInput)validateVisualInput(visualInput);
     if(attachments?.length)validateAttachments(attachments);
     const state = get();
-    if (!promptText.trim() || state.isWorking) {
+    const activeSession=state.chatSessions.find(s=>s.id===state.activeChatId);
+    const codeScope=hasProjectScope(state.currentTab,activeSession,state.activeWorkspace?.id);
+    if (!promptText.trim() || state.isWorking || state.isScanningProject) {
       // A voice turn that can't run now must not leave the microphone switched off.
       if (isVoice) globalVoiceEngine.completeTurn();
       return;
@@ -2840,9 +2857,9 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       promptText,
       state.messages,
       {
-        workspaceName,
-        workspacePath,
-        files: state.files,
+        workspaceName: codeScope ? workspaceName : '',
+        workspacePath: codeScope ? workspacePath : '',
+        files: codeScope ? state.files : {},
         activeAgent: delegatedSpecialist,
         isBossLocked: state.isBossLocked,
         availableAgents: state.agents,
@@ -2852,11 +2869,12 @@ export const useAxionStore = create<AxionState>((set, get) => ({
         routerStrategy: state.routerStrategy,
         autoFallbackEnabled: state.autoFallbackEnabled,
         isVoice, visualInput, attachments,
-        chatSessions: state.chatSessions, activeChatId: state.activeChatId
+        chatSessions: state.chatSessions.filter(s=>codeScope ? s.isWorkspaceBound && s.workspaceId===activeSession?.workspaceId : !s.isWorkspaceBound), activeChatId: state.activeChatId
       },
       {
         onOpenProject: (path) => get().mountNativeWorkspace(path),
         onProposedEdits: (diffs) => {
+          if(!codeScope)return;
           diffs = diffs.map(diff => ({...diff, workspacePath: state.activeWorkspace?.absolutePath}));
           // First change rides on the reply; each further file gets its own reviewable message.
           const [first, ...rest] = diffs;

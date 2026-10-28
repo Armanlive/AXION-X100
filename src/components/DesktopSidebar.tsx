@@ -113,7 +113,7 @@ export const DesktopSidebar: React.FC = () => {
       }
     }
     // After the switch, so the chat view opens this project's thread rather than the previous one.
-    setCurrentTab('workspace');
+    setCurrentTab('code_studio');
   };
 
   const handleNewProjectThread = async (wsId: string) => {
@@ -135,7 +135,7 @@ export const DesktopSidebar: React.FC = () => {
   };
 
   const renderSessionRow = (session: ChatSessionLike) => {
-    const isActive = activeChatId === session.id && currentTab === 'workspace';
+    const isActive = activeChatId === session.id && currentTab === (session.isWorkspaceBound ? 'code_studio' : 'workspace');
     const isEditing = editingChatId === session.id;
 
     if (isEditing) {
@@ -168,7 +168,6 @@ export const DesktopSidebar: React.FC = () => {
         onClick={() => {
           switchChat(session.id);
           setSpeechMode('chat');
-          setCurrentTab('workspace');
         }}
         className={`group w-full flex items-center justify-between px-2 py-1.5 rounded-lg text-xs cursor-pointer transition ${
           isActive
@@ -247,6 +246,7 @@ export const DesktopSidebar: React.FC = () => {
             <MessageSquare className="w-3.5 h-3.5" />
             <span>Chat</span>
           </button>
+          <button onClick={()=>{setSpeechMode('chat');setCurrentTab('code_studio');}} aria-current={currentTab==='code_studio'?'page':undefined} className="px-2 py-1.5 text-xs text-cyan-200 rounded hover:bg-cyan-950">Code</button>
 
           <button
             onClick={() => setSpeechMode('speech')}

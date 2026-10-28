@@ -54,7 +54,7 @@ interface FileNode {
   children?: FileNode[];
 }
 
-export const CodeFileViewer: React.FC = () => {
+export const CodeFileViewer: React.FC<{embedded?:boolean}> = ({embedded=false}) => {
   const {
     files,
     filesIndex,
@@ -146,7 +146,7 @@ export const CodeFileViewer: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isDirty, selectedFilePath, isFilePanelOpen]);
 
-  if (!isFilePanelOpen) return null;
+  if (!embedded && !isFilePanelOpen) return null;
 
   // Filter file list by search query
   const allFilePaths = filesIndex.length > 0

@@ -1,3 +1,4 @@
+import {CodeStudio} from '../CodeStudio';
 import React, { useState } from 'react';
 import { useAxionStore } from '../../store/useAxionStore';
 import { MobileNavigation } from './MobileNavigation';
@@ -29,7 +30,7 @@ export const MobileShell: React.FC = () => {
       <main className="flex-1 flex flex-col overflow-hidden relative">
         {speechMode === 'speech' ? (
           <MobileVoice />
-        ) : currentTab === 'workspace' ? (
+        ) : currentTab === 'code_studio' ? (<CodeStudio />) : currentTab === 'workspace' ? (
           <MobileChat />
         ) : currentTab === 'local_workspace' ? (
           <MobileWorkspace />

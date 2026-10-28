@@ -15,7 +15,7 @@ export const MobileNavigation: React.FC<MobileNavigationProps> = ({
 
   const isChatActive = currentTab === 'workspace' && speechMode === 'chat' && !isMoreOpen;
   const isVoiceActive = speechMode === 'speech' && !isMoreOpen;
-  const isWorkspaceActive = currentTab === 'local_workspace' && speechMode === 'chat' && !isMoreOpen;
+  const isWorkspaceActive = currentTab === 'code_studio' && speechMode === 'chat' && !isMoreOpen;
 
   const handleNavChat = () => {
     setSpeechMode('chat');
@@ -28,7 +28,7 @@ export const MobileNavigation: React.FC<MobileNavigationProps> = ({
 
   const handleNavWorkspace = () => {
     setSpeechMode('chat');
-    setCurrentTab('local_workspace');
+    setCurrentTab('code_studio');
   };
 
   return (
@@ -89,7 +89,7 @@ export const MobileNavigation: React.FC<MobileNavigationProps> = ({
               <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-1.5 h-1.5 rounded-full bg-[#00f0ff] shadow-[0_0_6px_#00f0ff]" />
             )}
           </div>
-          <span className="text-[10px] font-mono tracking-tight mt-1 font-semibold">Workspace</span>
+          <span className="text-[10px] font-mono tracking-tight mt-1 font-semibold">Code</span>
         </button>
 
         {/* 4. More Tab */}

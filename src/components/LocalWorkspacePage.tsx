@@ -187,10 +187,10 @@ export const LocalWorkspacePage: React.FC = () => {
               <span>Mount Path</span>
             </button>
             <button
-              onClick={() => setCurrentTab('workspace')}
+              onClick={() => setCurrentTab('code_studio')}
               className="flex items-center gap-2 px-3.5 py-2 rounded-lg bg-[#00f0ff]/10 hover:bg-[#00f0ff]/20 text-[#00f0ff] text-xs font-mono font-medium border border-cyan-500/40 transition shadow-[0_0_10px_rgba(0,240,255,0.15)]"
             >
-              <span>Back to Chat</span>
+              <span>Back to Code Studio</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
           </div>
