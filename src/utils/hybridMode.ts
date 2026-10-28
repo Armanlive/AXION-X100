@@ -2,10 +2,13 @@
 export type InferenceMode = 'online' | 'offline';
 const KEY = 'axion.inferenceMode.v1';
 let mode: InferenceMode = 'online';
+const listeners = new Set<() => void>();
+export function onInferenceModeChange(listener: () => void): () => void { listeners.add(listener); return () => { listeners.delete(listener); }; }
 try { if (globalThis.localStorage?.getItem(KEY) === 'offline') mode = 'offline'; } catch { /* storage unavailable */ }
 export function getInferenceMode(): InferenceMode { return mode; }
 export function setInferenceMode(next: InferenceMode): void {
   mode = next;
+  for (const listener of listeners) listener();
   try { globalThis.localStorage?.setItem(KEY, next); } catch { /* session still works */ }
 }
 export function requiresLocalInference(connected = globalThis.navigator?.onLine !== false): boolean {

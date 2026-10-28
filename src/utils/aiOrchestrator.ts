@@ -147,6 +147,7 @@ export async function orchestrateAIRequest(userPrompt: string, history: ChatMess
   routerStrategy?: RoutingStrategy; autoFallbackEnabled?: boolean;
   chatSessions?: ChatSession[]; activeChatId?: string;
 }, callbacks: StreamCallbacks): Promise<void> {
+  callbacks.onReasoningStep?.({agent:'Workspace',action:'Inspecting your request…',status:'pending'});
   const finishLocal=(text:string)=>{callbacks.onChunk(text);callbacks.onComplete(text,text);};
   if(!context.visualInput&&detectSleepCommand(userPrompt)){const ack=sleepAcknowledgement(userPrompt);callbacks.onSleep?.();callbacks.onChunk(ack.text);callbacks.onComplete(ack.text,ack.speechText);return;}
   const modeCommand = context.visualInput ? null : detectModeCommand(userPrompt);
@@ -315,6 +316,7 @@ export async function orchestrateAIRequest(userPrompt: string, history: ChatMess
   const relevantFiles=hasWorkspace&&!audit?selectRelevantFiles(userPrompt,recentUser,Object.keys(files)).filter(p=>!errorPaths.has(p)):[];
   // Small talk doesn't need the project map: a smaller prompt makes the model answer much sooner.
   const aboutCode=audit||projectThread||relevantFiles.length>0||CODE_TALK.test(userPrompt)||!!context.attachments?.length;
+  callbacks.onReasoningStep?.({agent:'Workspace',action:'Reading project context…',status:'pending'});
   // Project map and memory recall are independent: fetch them at the same time.
   const eccPromise=context.workspacePath&&aboutCode
     ?eccManager.assemble(userPrompt,context.workspacePath).then(ecc=>{callbacks.onContext?.(ecc.telemetry);return ecc.context;}).catch(()=>'Workspace Git context is unavailable. Do not claim project inspection.')
@@ -406,7 +408,7 @@ ${recallSection?recallSection+'\n':''}${auditSection?auditSection+'\n':''}${cont
           throw error;
         }
       },
-    })),{...DEFAULT_RACE,onStart:(i,reason)=>{if(i>0)callbacks.onReasoningStep?.({agent:'Router',action:`${reason==='hedge'?'Also asking':'Switching to'} ${ordered[i].model.name}…`,status:'completed'});}});
+    })),{...DEFAULT_RACE,onStart:(i,reason)=>{callbacks.onReasoningStep?.({agent:'Router',action:`${reason==='first'?'Asking':reason==='hedge'?'Also asking':'Switching to'} ${ordered[i].model.name}…`,status:'completed'});}});
   }catch(error){
     callbacks.onError(providerErrorMessage(error));
     return;

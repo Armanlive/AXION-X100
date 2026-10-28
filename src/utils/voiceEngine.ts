@@ -1,3 +1,4 @@
+import {requiresLocalInference, onInferenceModeChange} from './hybridMode.ts';
 import {invoke,isTauri} from '@tauri-apps/api/core';
 import {RecordedRecognition} from './recordedRecognition.ts';
 import {LiveKitRecognition,liveKitConfigured} from './liveKitVoice.ts';
@@ -36,7 +37,7 @@ export class SpeechRecognitionAdapter {
   private recordedEnabled=false;private usingRecorded=false;
   // Whisper must be told the language: left to guess, it often writes Hindi speech in Urdu script.
   private transcriptionLanguage:string|null=null;
-  private recorded=new RecordedRecognition((audio,mime)=>invoke<string>('transcribe_audio',{audio,mime,language:this.transcriptionLanguage}),text=>this.transcript?.(text,true),error=>this.error?.(error));
+  private recorded=new RecordedRecognition((audio,mime)=>{if(requiresLocalInference())return Promise.reject(new Error('Offline mode: cloud transcription is disabled.'));return invoke<string>('transcribe_audio',{audio,mime,language:this.transcriptionLanguage});},text=>this.transcript?.(text,true),error=>this.error?.(error));
   setRecordedEnabled(enabled:boolean){this.recordedEnabled=enabled&&isTauri();}
   sample(rms:number,now:number){if(this.usingRecorded)this.recorded.sample(rms,now);}
 
@@ -83,14 +84,21 @@ export class SpeechRecognitionAdapter {
   setCallbacks(transcript:(text:string,final:boolean)=>void,state:(state:VoiceState)=>void,error:(error:string)=>void){this.transcript=transcript;this.state=state;this.error=error;this.transport=new LiveKitRecognition(transcript,()=>state('listening'),error,undefined,undefined,this.liveAudio);}
   setLiveAudioCallbacks(callbacks:{onOutputLevel?:(level:number)=>void;onOutputStarted?:()=>void;onOutputEnded?:()=>void}){this.liveAudio=callbacks;if(this.transcript&&this.state&&this.error)this.transport=new LiveKitRecognition(this.transcript,()=>this.state?.('listening'),this.error,undefined,undefined,this.liveAudio);}
   start(){
-    if(this.recordedEnabled){if(!this.inputStream){this.error?.('Microphone stream is unavailable.');return;}this.usingRecorded=true;this.recorded.start(this.inputStream);this.state?.('listening');return;}
-    if(liveKitConfigured()){this.usingTransport=true;void this.transport?.start(this.inputStream,this.mode);return;}
+    if(requiresLocalInference()){
+      // Web Speech can otherwise use a remote recognizer even with no cloud adapter selected.
+      if(!this.recognition || !('processLocally' in this.recognition)){
+        this.error?.('Offline speech recognition is unavailable. Install a local speech adapter or type your command. No audio was sent.');return;
+      }
+      this.recognition.processLocally=true;
+    } else if(this.recognition && 'processLocally' in this.recognition) this.recognition.processLocally=false;
+    if(!requiresLocalInference() && this.recordedEnabled){if(!this.inputStream){this.error?.('Microphone stream is unavailable.');return;}this.usingRecorded=true;this.recorded.start(this.inputStream);this.state?.('listening');return;}
+    if(!requiresLocalInference() && liveKitConfigured()){this.usingTransport=true;void this.transport?.start(this.inputStream,this.mode);return;}
     if(!this.recognition){this.error?.('Speech recognition is unavailable in this runtime. Microphone permission alone does not enable transcription. Configure the LiveKit voice connection or use a browser with speech recognition.');return;}
     this.wanted=true;this.acceptResults=!this.stopping;clearTimeout(this.retry);
     if(this.running||this.starting||this.stopping)return;
     try{this.starting=true;this.recognition.start();}catch(error:any){this.starting=false;if(error.name!=='InvalidStateError'){this.wanted=false;this.error?.('Could not start speech recognition.');}}
   }
-  restartIgnoredTurn(){if(this.usingRecorded&&this.inputStream){this.recorded.start(this.inputStream);return;}if(this.usingTransport)void this.transport?.start(this.inputStream,this.mode);}
+  restartIgnoredTurn(){if(requiresLocalInference()){this.stop();this.start();return;}if(this.usingRecorded&&this.inputStream){this.recorded.start(this.inputStream);return;}if(this.usingTransport)void this.transport?.start(this.inputStream,this.mode);}
   stop(flush=false){if(this.usingRecorded){this.recorded.stop(flush);if(!flush)this.usingRecorded=false;return;}if(this.usingTransport){this.transport?.stop(flush);if(!flush)this.usingTransport=false;return;}this.stopping=this.running||this.starting;this.wanted=false;this.acceptResults=flush;clearTimeout(this.retry);try{flush?this.recognition?.stop():this.recognition?.abort();}catch{} }
 }
 
@@ -151,6 +159,8 @@ export class SpeechSynthesisAdapter {
     this.lastError='';
     const clean=prepareTextForSpeech(text);
     if(!clean)return false;
+
+    if(requiresLocalInference())return this.speakDevice(clean,generation,onStart,onEnd);
 
     // 1. Gemini TTS; on failure fall through to Fish Audio (if configured), then device speech.
     if(this.ttsEngine==='gemini'){
@@ -255,6 +265,10 @@ export class SpeechSynthesisAdapter {
       await new Promise<void>(resolve=>{const done=()=>{clearTimeout(timer);window.speechSynthesis.removeEventListener('voiceschanged',done);resolve();};const timer=setTimeout(done,1200);window.speechSynthesis.addEventListener('voiceschanged',done);});
       if(generation!==this.generation)return false;voices=window.speechSynthesis.getVoices();
     }
+    if(requiresLocalInference()){
+      voices=voices.filter(voice=>voice.localService===true);
+      if(!voices.length){this.lastError='No local device voice is installed. Text replies still work; no speech was sent to the cloud.';return false;}
+    }
     const voice=selectDeviceVoice(voices,this.voiceName,clean,this.language);
     const utterance=new SpeechSynthesisUtterance(clean);this.current=utterance;
     if(voice){utterance.voice=voice;utterance.lang=voice.lang;}
@@ -342,7 +356,11 @@ export class VoiceEngine {
   /** Asleep after "AXION so jao": nothing but the name wakes it, in every talk mode. */
   private sleeping=false;
   isSleeping(){return this.sleeping;}
+  private unsubscribeMode:()=>void;
+  private offlineAudio=()=>{if(requiresLocalInference()){this.recognitionAdapter.stop();this.synthesisAdapter.cancel();}};
   constructor(events?:VoiceEngineEvents){
+    this.unsubscribeMode=onInferenceModeChange(this.offlineAudio);
+    if(typeof window!=='undefined')window.addEventListener?.('offline',this.offlineAudio);
     this.events=events || {};
     this.audioAnalyser.setOnLevel(level=>this.events.onAudioLevel?.(this.state==='listening'?level:0));
     this.audioAnalyser.setOnSample((rms,peak,now)=>{this.recognitionAdapter.sample(rms,now);if(this.active&&this.status.waitingForWake&&this.settings.doubleClap&&this.claps.sample(rms,peak,now))this.activate();});
@@ -450,6 +468,6 @@ export class VoiceEngine {
     if(!started&&epoch===this.epoch)done();
   }
   interrupt(){this.epoch++;this.synthesisAdapter.cancel();this.events.onAudioLevel?.(0);this.completeTurn();}
-  destroy(){this.stopListening();this.synthesisAdapter.cancel();this.events={};}
+  destroy(){this.unsubscribeMode();if(typeof window!=='undefined')window.removeEventListener?.('offline',this.offlineAudio);this.stopListening();this.synthesisAdapter.cancel();this.events={};}
 }
 export const globalVoiceEngine=new VoiceEngine();

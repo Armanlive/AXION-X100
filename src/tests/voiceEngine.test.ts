@@ -20,3 +20,26 @@ it('recognition restart waits for abort completion and ignores late transcripts'
  rec.onend();await new Promise(resolve=>setTimeout(resolve,280));assert.equal(starts,2);adapter.stop();
  delete (globalThis as any).window;
 });
+
+import {SpeechSynthesisAdapter} from '../utils/voiceEngine.ts';
+import {setInferenceMode} from '../utils/hybridMode.ts';
+it('offline recognition rejects remote-only Web Speech before starting it',()=>{
+ let starts=0;let error='';
+ Object.defineProperty(globalThis,'window',{configurable:true,value:{SpeechRecognition:class {start(){starts++;}}}});
+ try{
+  setInferenceMode('offline');
+  const adapter=new SpeechRecognitionAdapter();adapter.setCallbacks(()=>{},()=>{},e=>error=e);adapter.start();
+  assert.equal(starts,0);assert.match(error,/No audio was sent/);
+ }finally{setInferenceMode('online');delete (globalThis as any).window;}
+});
+it('offline synthesis never selects a remote device voice',async()=>{
+ let spoken=false;
+ Object.defineProperty(globalThis,'window',{configurable:true,value:{speechSynthesis:{cancel(){},getVoices(){return [{name:'Cloud',lang:'en-US',localService:false}];},speak(){spoken=true;}}}});
+ try{
+  setInferenceMode('offline');
+  const adapter=new SpeechSynthesisAdapter();
+  assert.equal(await adapter.speak('Ready, Sir.'),false);
+  assert.equal(spoken,false);
+  assert.match(adapter.lastError,/No local device voice/);
+ }finally{setInferenceMode('online');delete (globalThis as any).window;}
+});

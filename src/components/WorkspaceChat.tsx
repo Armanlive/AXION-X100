@@ -370,6 +370,16 @@ export const WorkspaceChat: React.FC = () => {
                     </div>
                   ) : (
                     <div className="w-full space-y-3">
+                      {!!msg.reasoningSteps?.length && (
+                        <div role="status" aria-live="polite" className="px-4 py-2 rounded-xl border border-cyan-500/20 text-xs text-cyan-200 space-y-1">
+                          {msg.reasoningSteps.slice(-4).map((step, i) => (
+                            <div key={`${step.agent}-${i}`}>
+                              <span aria-hidden="true">{step.status === 'pending' ? '⏳' : '✓'} </span>
+                              {step.action}
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       {/* Formatted Markdown Body */}
                       <div className="p-4 rounded-2xl bg-[#070b16]/85 border border-cyan-500/20 shadow-[0_4px_24px_rgba(0,0,0,0.6)] backdrop-blur-md">
                         {msg.text.trim() ? (
