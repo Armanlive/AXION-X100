@@ -209,10 +209,22 @@ pub fn inventory(root: &Path) -> Inventory {
     inv
 }
 
+/// Env files, keys and credential stores: their contents (current or historical) never go to a model.
+pub fn is_sensitive_path(path: &str) -> bool {
+    let lower = path.replace('\\', "/").to_lowercase();
+    let parts: Vec<&str> = lower.split('/').filter(|p| !p.is_empty()).collect();
+    let name = parts.last().copied().unwrap_or("");
+    if parts.iter().any(|p| matches!(*p, ".git" | ".ssh" | ".aws" | ".gnupg")) { return true; }
+    let env_template = matches!(name, ".env.example" | ".env.sample" | ".env.template" | ".env.dist");
+    if (name == ".env" || name.starts_with(".env.")) && !env_template { return true; }
+    if [".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".dpapi"].iter().any(|e| name.ends_with(e)) || name.starts_with("id_rsa") || name.starts_with("id_dsa") || name.starts_with("id_ecdsa") || name.starts_with("id_ed25519") { return true; }
+    matches!(name, ".npmrc" | ".pypirc" | ".netrc" | ".git-credentials" | ".htpasswd") || name.contains("secret") || name.contains("credential")
+}
+
 /// Git arguments for one read-only question about the project; None when the input is unsafe.
 pub fn git_args(kind: &str, path: Option<&str>, rev: Option<&str>) -> Option<Vec<String>> {
     let safe_rev = |r: &str| !r.is_empty() && r.len() <= 80 && !r.starts_with('-') && r.chars().all(|c| c.is_ascii_alphanumeric() || "._/-~^".contains(c));
-    let safe_path = |p: &str| { let p = p.trim(); !p.is_empty() && p.len() <= 300 && !p.starts_with('-') && !p.contains("..") && !p.starts_with('/') && !p.contains(':') };
+    let safe_path = |p: &str| { let p = p.trim(); !p.is_empty() && p.len() <= 300 && !p.starts_with('-') && !p.contains("..") && !p.starts_with('/') && !p.contains(':') && !is_sensitive_path(p) };
     let owned = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     match kind {
         "status" => Some(owned(&["status", "--short", "--branch"])),
@@ -301,9 +313,10 @@ mod tests {
     fn git_requests_are_read_only_and_validated() {
         assert_eq!(git_args("show", Some("src/a.tsx"), Some("main~2")).unwrap(), vec!["show".to_string(), "main~2:src/a.tsx".to_string()]);
         assert!(git_args("log", Some("src/a.tsx"), None).unwrap().contains(&"--all".to_string()));
-        for (k, p, r) in [("push", None, None), ("reset", None, None), ("show", Some("../x"), Some("main")), ("show", Some("a.ts"), Some("--output=x")), ("log", Some("--exec=x"), None), ("show", Some("C:/x"), Some("main"))] {
+        for (k, p, r) in [("push", None, None), ("reset", None, None), ("show", Some("../x"), Some("main")), ("show", Some("a.ts"), Some("--output=x")), ("log", Some("--exec=x"), None), ("show", Some("C:/x"), Some("main")), ("show", Some(".env"), Some("HEAD~1")), ("diff", Some("config/.env.local"), None), ("log", Some("certs/server.pem"), None), ("show", Some(".git/config"), Some("main"))] {
             assert!(git_args(k, p, r).is_none(), "{k} {p:?} {r:?}");
         }
+        assert!(git_args("show", Some(".env.example"), Some("HEAD")).is_some());
     }
     #[test]
     fn dates_and_secret_shapes() {
