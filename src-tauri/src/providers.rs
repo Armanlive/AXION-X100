@@ -189,9 +189,35 @@ fn normalize_reply(provider: &str, value: &Value) -> Result<Value, String> {
     };
     Ok(json!({"choices":[{"message":{"content":text}}]}))
 }
+/// Provider calls the renderer may still cancel (losing racers), by request id.
+type Abort = Box<dyn Fn() + Send>;
+static IN_FLIGHT: Mutex<BTreeMap<String, Abort>> = Mutex::new(BTreeMap::new());
+fn valid_request_id(id: &str) -> bool { !id.is_empty() && id.len() <= 80 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-') }
+
 #[tauri::command]
-pub async fn provider_request(window: WebviewWindow, provider: String, model: String, mut payload: Value, timeout_secs: Option<u64>) -> Result<Value,String> {
-    crate::terminal::trusted(&window)?; supported(&provider)?;
+pub async fn provider_request(window: WebviewWindow, provider: String, model: String, payload: Value, timeout_secs: Option<u64>, request_id: Option<String>) -> Result<Value,String> {
+    crate::terminal::trusted(&window)?;
+    let Some(id) = request_id.filter(|id| valid_request_id(id)) else { return send_provider_request(window, provider, model, payload, timeout_secs).await };
+    let task = tauri::async_runtime::spawn(send_provider_request(window, provider, model, payload, timeout_secs));
+    let abort = task.inner().abort_handle();
+    if let Ok(mut map) = IN_FLIGHT.lock() { map.insert(id.clone(), Box::new(move || abort.abort())); }
+    let outcome = task.await;
+    if let Ok(mut map) = IN_FLIGHT.lock() { map.remove(&id); }
+    outcome.unwrap_or_else(|_| Err("Provider request cancelled".into()))
+}
+
+/// Stops an in-flight provider call: the HTTP request is dropped, so the provider stops
+/// streaming to us (and usually stops generating) instead of finishing in the background.
+#[tauri::command]
+pub fn provider_cancel(window: WebviewWindow, request_id: String) -> Result<(), String> {
+    crate::terminal::trusted(&window)?;
+    let abort = IN_FLIGHT.lock().map_err(|_| "Request registry busy")?.remove(&request_id);
+    if let Some(abort) = abort { abort(); }
+    Ok(())
+}
+
+async fn send_provider_request(window: WebviewWindow, provider: String, model: String, mut payload: Value, timeout_secs: Option<u64>) -> Result<Value,String> {
+    supported(&provider)?;
     let config = { let _guard=STORE_LOCK.lock().map_err(|_| "Credential store busy")?; load(&location(&window)?)?.get(&provider).cloned() };
     let config = config.ok_or("Provider is not configured. Save its configuration in Cloud Brain.")?;
     let url=endpoint(&provider,&model,&config.account_id)?;

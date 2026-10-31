@@ -1,5 +1,6 @@
 import {it, beforeEach} from 'node:test';
 import assert from 'node:assert/strict';
+import {setInferenceMode} from '../utils/hybridMode.ts';
 import {
   rankMilestones,
   recallFromSessions,
@@ -81,6 +82,15 @@ it('returns no cloud recall on failure or timeout, never throws', async () => {
   const hang = (_: string, signal: AbortSignal) => new Promise<MilestoneRow[]>((_r, reject) => signal.addEventListener('abort', () => reject(new Error('aborted'))));
   assert.deepEqual(await fetchCloudMilestones({source: hang, pairId: 'p', timeoutMs: 20}), []);
   assert.deepEqual(await fetchCloudMilestones({pairId: 'p'}), [], 'unconfigured Supabase means no cloud recall');
+});
+
+it('offline mode reads nothing from the cloud', async () => {
+  clearRecallCache();
+  let calls = 0;
+  setInferenceMode('offline');
+  try { assert.deepEqual(await fetchCloudMilestones({source: async () => { calls += 1; return rows; }, pairId: 'p'}), []); }
+  finally { setInferenceMode('online'); }
+  assert.equal(calls, 0);
 });
 
 it('builds the section, honouring the share-with-AI gate', async () => {

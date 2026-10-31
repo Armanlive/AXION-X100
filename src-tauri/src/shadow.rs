@@ -3,7 +3,9 @@
 //! (incrementally) into a per-project folder under the OS temp dir, dependency folders are
 //! linked rather than copied, the proposed files are written over the copy, and the same
 //! fixed checks as checks.rs run there.
-use crate::checks::{detect_checks, run_check, CheckResult};
+use crate::checks::{detect_checks, run_check_isolated, CheckResult};
+#[cfg(test)]
+use crate::checks::run_check;
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
@@ -32,7 +34,10 @@ fn stable_hash(text: &str) -> String {
 
 /// Plain relative paths only, never secrets or VCS internals (same rule as real writes).
 pub fn safe_relative(path: &str) -> Option<PathBuf> {
-    let rel = Path::new(path.trim());
+    let path = path.trim();
+    // Same rule on every OS: a Windows drive, UNC or backslash path is never a plain relative path.
+    if path.contains('\\') || path.contains(':') { return None; }
+    let rel = Path::new(path);
     let mut out = PathBuf::new();
     for c in rel.components() {
         match c { Component::Normal(s) => out.push(s), _ => return None }
@@ -99,17 +104,39 @@ pub fn mirror(root: &Path, shadow: &Path) -> Result<(), String> {
     std::fs::write(&manifest_path, serde_json::to_string(&current).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }
 
+/// No symlink or junction anywhere on the way to `rel`, and the real parent stays inside the copy.
+fn refuse_links(shadow_real: &Path, shadow: &Path, rel: &Path) -> Result<(), &'static str> {
+    let mut at = shadow.to_path_buf();
+    for part in rel.iter() {
+        at.push(part);
+        match std::fs::symlink_metadata(&at) {
+            Ok(meta) if meta.file_type().is_symlink() => return Err("link outside the scratch copy"),
+            Ok(_) => {}
+            Err(_) => break, // does not exist yet: nothing below it can be a link
+        }
+    }
+    let parent = shadow.join(rel).parent().map(Path::to_path_buf).ok_or("no parent")?;
+    let real = parent.canonicalize().map_err(|_| "unresolvable parent")?;
+    if real.starts_with(shadow_real) { Ok(()) } else { Err("resolves outside the scratch copy") }
+}
+
 /// Writes the proposed files over the copy and marks them so the next mirror restores them.
 pub fn overlay(shadow: &Path, files: &[ShadowFile]) -> Result<(), String> {
     let manifest_path = shadow.join(MANIFEST);
     let mut manifest: HashMap<String, String> = std::fs::read_to_string(&manifest_path).ok()
         .and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default();
     let mut seen = HashSet::new();
+    let shadow_real = shadow.canonicalize().map_err(|e| e.to_string())?;
     for f in files {
         let rel = safe_relative(&f.path).ok_or_else(|| format!("Refused path: {}", f.path))?;
+        // Linked dependency folders point at the live project: a write there would escape the copy.
+        if rel.iter().any(|p| { let p = p.to_string_lossy().to_lowercase(); SKIP.contains(&p.as_str()) || LINKED.contains(&p.as_str()) }) {
+            return Err(format!("Refused path: {} (dependency, build or VCS folder)", f.path));
+        }
         if !seen.insert(rel.clone()) { continue; }
         let dest = shadow.join(&rel);
         if let Some(parent) = dest.parent() { std::fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
+        refuse_links(&shadow_real, shadow, &rel).map_err(|why| format!("Refused path: {} ({why})", f.path))?;
         std::fs::write(&dest, &f.content).map_err(|e| format!("Write {}: {e}", f.path))?;
         manifest.insert(rel.to_string_lossy().replace('\\', "/"), "overridden".into());
     }
@@ -137,7 +164,7 @@ pub async fn shadow_checks(window: WebviewWindow, state: State<'_, crate::AppSta
         let mut results = Vec::new();
         for mut check in detect_checks(&shadow) {
             if check.program == "cargo" { check.args.extend(["--target-dir".into(), target.to_string_lossy().into_owned()]); }
-            let result = run_check(&shadow, &check, TIMEOUT);
+            let result = run_check_isolated(&shadow, &check, TIMEOUT);
             let failed = !result.success;
             results.push(result);
             if failed { break; }
@@ -193,6 +220,29 @@ mod tests {
         mirror(&repo, &shadow).unwrap();
         let clean = run_check(&shadow, &tsc, Duration::from_secs(300));
         assert!(clean.success, "{}", clean.output);
+    }
+    #[test]
+    fn overlay_never_writes_through_linked_dependencies() {
+        let project = tempfile::tempdir().unwrap();
+        let scratch = tempfile::tempdir().unwrap();
+        let (root, shadow) = (project.path(), scratch.path().join("copy"));
+        std::fs::create_dir_all(root.join("node_modules/pkg")).unwrap();
+        std::fs::write(root.join("node_modules/pkg/index.js"), "live").unwrap();
+        std::fs::write(root.join("a.ts"), "a").unwrap();
+        mirror(root, &shadow).unwrap();
+        for path in ["node_modules/pkg/index.js", "NODE_MODULES/pkg/index.js", "node_modules/new.js", "dist/x.js"] {
+            assert!(overlay(&shadow, &[ShadowFile { path: path.into(), content: "pwned".into() }]).is_err(), "{path}");
+        }
+        // Any other link planted inside the copy is refused too.
+        #[cfg(unix)]
+        {
+            let outside = tempfile::tempdir().unwrap();
+            std::os::unix::fs::symlink(outside.path(), shadow.join("lib")).unwrap();
+            assert!(overlay(&shadow, &[ShadowFile { path: "lib/x.ts".into(), content: "pwned".into() }]).is_err());
+            assert!(!outside.path().join("x.ts").exists());
+        }
+        assert_eq!(std::fs::read_to_string(root.join("node_modules/pkg/index.js")).unwrap(), "live", "live dependencies untouched");
+        assert!(overlay(&shadow, &[ShadowFile { path: "src/ok.ts".into(), content: "ok".into() }]).is_ok());
     }
     #[test]
     fn refuses_unsafe_overlay_paths() {

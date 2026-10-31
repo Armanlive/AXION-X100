@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useAxionStore } from '../store/useAxionStore';
-import { detectFileLanguage, isBinaryFile } from '../utils/workspaceService';
+import { detectFileLanguage, escapeHtml, isBinaryFile } from '../utils/workspaceService';
 import Prism from 'prismjs';
 import 'prismjs/components/prism-typescript';
 import 'prismjs/components/prism-javascript';
@@ -122,7 +122,8 @@ export const CodeFileViewer: React.FC<{embedded?:boolean}> = ({embedded=false}) 
     try {
       return Prism.highlight(activeContent, prismLang, activeLanguage);
     } catch {
-      return activeContent;
+      // This string is rendered as HTML: never fall back to raw file content.
+      return escapeHtml(activeContent);
     }
   }, [activeContent, activeLanguage, isBinary]);
 

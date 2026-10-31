@@ -9,7 +9,8 @@ export interface RaceCandidate {
   key: string;
   /** Hedging may start this one early; paid candidates only run as a plain fallback. */
   free: boolean;
-  run: (timeoutSecs: number) => Promise<string>;
+  /** `signal` aborts when another candidate has already won. */
+  run: (timeoutSecs: number, signal: AbortSignal) => Promise<string>;
 }
 
 export interface RaceOptions {
@@ -83,12 +84,15 @@ export function raceCandidates(candidates: RaceCandidate[], options: RaceOptions
   return new Promise((resolve, reject) => {
     if (!candidates.length) { reject(new Error('No AI model is available')); return; }
     const inFlight = new Set<number>();
+    const controllers = new Map<number, AbortController>();
     let next = 0;
     let done = false;
     let lastError: unknown = new Error('No AI model answered');
     let hedgeTimer: ReturnType<typeof setTimeout> | undefined;
 
     const finish = () => { done = true; if (hedgeTimer) clearTimeout(hedgeTimer); };
+    // Losers are cancelled, so they stop spending time and quota in the background.
+    const cancelOthers = (winner: number) => { for (const [i, c] of controllers) if (i !== winner) c.abort(); controllers.clear(); };
     const armHedge = () => {
       if (hedgeTimer) clearTimeout(hedgeTimer);
       if (next >= candidates.length) return;
@@ -102,17 +106,22 @@ export function raceCandidates(candidates: RaceCandidate[], options: RaceOptions
       const index = next++;
       const candidate = candidates[index];
       inFlight.add(index);
+      const controller = new AbortController();
+      controllers.set(index, controller);
       options.onStart?.(index, reason);
       const began = now();
-      candidate.run(index === 0 ? options.firstTimeoutSecs : options.otherTimeoutSecs)
+      candidate.run(index === 0 ? options.firstTimeoutSecs : options.otherTimeoutSecs, controller.signal)
         .then((text) => {
           if (!text.trim()) throw new Error('Empty provider response');
           inFlight.delete(index);
+          controllers.delete(index);
           recordSuccess(candidate.key, now() - began);
-          if (!done) { finish(); resolve({ index, text }); }
+          if (!done) { finish(); cancelOthers(index); resolve({ index, text }); }
         })
         .catch((error) => {
           inFlight.delete(index);
+          controllers.delete(index);
+          if (controller.signal.aborted) return; // lost the race: not the provider's fault
           recordFailure(candidate.key, error);
           lastError = error;
           if (done) return;

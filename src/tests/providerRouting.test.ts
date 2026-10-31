@@ -94,19 +94,27 @@ it('GitHub imports source files without credentials, dependency caches or path t
 });
 
 import {importGithubProject} from '../utils/githubProject.ts';
-it('GitHub import pins raw files to the resolved commit and reports live progress',async()=>{
+it('GitHub import pins raw files to the resolved commit (never the tree SHA) and reports live progress',async()=>{
  const original=globalThis.fetch;const calls:string[]=[];const steps:string[]=[];
- const sha='a'.repeat(40);
+ const commitSha='c'.repeat(40), treeSha='e'.repeat(40);
+ const api=(url:string,truncated=false)=>url.endsWith('/commits/HEAD')?Response.json({sha:commitSha,commit:{tree:{sha:treeSha}}})
+  :url.includes(`/git/trees/${treeSha}`)?Response.json({sha:treeSha,truncated,tree:[{type:'blob',mode:'100644',path:'src/main.ts',size:5},{type:'blob',mode:'100644',path:'.env',size:4}]})
+  :new Response('not found',{status:404});
  try{
   globalThis.fetch=async(input)=>{
    const url=String(input);calls.push(url);
-   return url.startsWith('https://api.github.com/')?Response.json({sha,tree:[{type:'blob',mode:'100644',path:'src/main.ts',size:5},{type:'blob',mode:'100644',path:'.env',size:4}]}):new Response('hello');
+   if(url.startsWith('https://api.github.com/'))return api(url);
+   // raw.githubusercontent.com only serves commit/branch refs; a tree SHA returns 404 like the live service
+   return url.includes(`/${commitSha}/`)?new Response('hello'):new Response('404: Not Found',{status:404});
   };
   const project=await importGithubProject('owner/repo',s=>steps.push(s));
   assert.equal(project.files['src/main.ts'],'hello');assert.equal(project.files['.env'],undefined);
-  assert.equal(calls[1],`https://raw.githubusercontent.com/owner/repo/${sha}/src/main.ts`);
+  assert.equal(project.commit,commitSha);
+  assert.equal(calls[0],'https://api.github.com/repos/owner/repo/commits/HEAD');
+  assert.equal(calls[1],`https://api.github.com/repos/owner/repo/git/trees/${treeSha}?recursive=1`);
+  assert.equal(calls[2],`https://raw.githubusercontent.com/owner/repo/${commitSha}/src/main.ts`);
   assert.ok(steps.length>=2);
-  globalThis.fetch=async()=>Response.json({sha,tree:[],truncated:true});
+  globalThis.fetch=async(input)=>api(String(input),true);
   await assert.rejects(()=>importGithubProject('owner/repo',()=>{}),/Incomplete/);
  }finally{globalThis.fetch=original;}
 });

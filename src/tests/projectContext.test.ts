@@ -44,3 +44,15 @@ it('keeps overview files for analysis and its short follow-up', () => {
     assert.ok(!selected.includes('.env'));
   }
 });
+
+import {workspaceIdFor, escapeHtml} from '../utils/workspaceService.ts';
+it('escapes file content before it reaches an HTML sink', () => {
+  assert.equal(escapeHtml('<img src=x onerror="alert(1)">&\''), '&lt;img src=x onerror=&quot;alert(1)&quot;&gt;&amp;&#39;');
+});
+it('gives same-named folders in different places different project ids', () => {
+  const personal = workspaceIdFor('AXION', 'D:\\Personal\\AXION'), office = workspaceIdFor('AXION', 'D:\\Office\\AXION');
+  assert.notEqual(personal, office);
+  assert.match(personal, /^axion-[0-9a-f]{8}$/);
+  assert.equal(workspaceIdFor('AXION', 'd:/personal/axion/'), personal, 'Windows path spelling and case do not change identity');
+  assert.notEqual(workspaceIdFor('app', '/home/a/app'), workspaceIdFor('app', '/home/A/app'), 'POSIX paths stay case-sensitive');
+});

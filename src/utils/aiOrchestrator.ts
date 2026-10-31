@@ -325,7 +325,7 @@ export async function orchestrateAIRequest(userPrompt: string, history: ChatMess
   const eccPromise=context.workspacePath&&aboutCode
     ?eccManager.assemble(userPrompt,context.workspacePath).then(ecc=>{callbacks.onContext?.(ecc.telemetry);return ecc.context;}).catch(()=>'Workspace Git context is unavailable. Do not claim project inspection.')
     :Promise.resolve(context.workspacePath&&hasWorkspace?'Project map omitted for this message (it is not about code). Ask for it if you need it.':'No workspace context attached.');
-  const recallPromise=buildRecallSection({query:[...recentUser.slice(-2),userPrompt].join('\n'),sessions:context.chatSessions,activeChatId:context.activeChatId,cloudAllowed:useProfileStore.getState().profile?.shareWithAI===true});
+  const recallPromise=buildRecallSection({query:[...recentUser.slice(-2),userPrompt].join('\n'),sessions:context.chatSessions,activeChatId:context.activeChatId,cloudAllowed:useProfileStore.getState().profile?.shareWithAI===true&&!hasWorkspace});
   let auditSection='';
   let auditFiles:string[]|null=null;
   if(audit){
@@ -403,8 +403,8 @@ ${recallSection?recallSection+'\n':''}${auditSection?auditSection+'\n':''}${cont
     raced=await raceCandidates(ordered.map(c=>({
       key:c.key,
       free:c.model.tier==='free'||c.provider.type==='ollama',
-      run:async(timeoutSecs:number)=>{
-        try{const text=await requestProvider(c.provider.type,c.modelId,systemInstruction,contents,timeoutSecs);callbacks.onProviderResult?.(c.provider.id,true);return text;}
+      run:async(timeoutSecs:number,signal:AbortSignal)=>{
+        try{const text=await requestProvider(c.provider.type,c.modelId,systemInstruction,contents,timeoutSecs,signal);callbacks.onProviderResult?.(c.provider.id,true);return text;}
         catch(error){
           const errStr=(error instanceof Error?error.message:String(error)).toLowerCase();
           if(/401|403|unauthori[sz]ed|invalid api key|api_key_invalid/.test(errStr))callbacks.onProviderResult?.(c.provider.id,false);

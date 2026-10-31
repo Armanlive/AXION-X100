@@ -46,6 +46,25 @@ export function normalizePath(p: string): string {
   return normalized;
 }
 
+/** Escapes text for an HTML sink (code viewer fallback when highlighting fails). */
+export function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/**
+ * Stable project identity: a readable slug of the folder name plus a hash of its
+ * canonical location, so two folders that share a name (D:/Personal/AXION and
+ * D:/Office/AXION) never share chats, files or memory.
+ */
+export function workspaceIdFor(name: string, location: string): string {
+  const slug = (name || 'project').toLowerCase().replace(/[^a-z0-9_-]/g, '-').slice(0, 48);
+  let key = normalizePath(location.trim());
+  if (/^[a-z]:\//i.test(key) || key.startsWith('//')) key = key.toLowerCase(); // Windows paths are case-insensitive
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < key.length; i++) { hash ^= key.charCodeAt(i); hash = Math.imul(hash, 0x01000193) >>> 0; }
+  return `${slug}-${hash.toString(16).padStart(8, '0')}`;
+}
+
 /**
  * Resolves a relative path against the workspace root with boundary enforcement
  */

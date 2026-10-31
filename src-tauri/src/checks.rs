@@ -80,9 +80,28 @@ fn kill_tree(child: &mut std::process::Child) {
     let _ = child.kill();
 }
 
-pub fn run_check(root: &Path, check: &CheckCommand, timeout: Duration) -> CheckResult {
+/// Variables a toolchain needs to start; everything else (API keys, tokens, cloud
+/// credentials inherited by the app) is withheld from scratch-copy checks.
+const ISOLATED_ENV: [&str; 22] = ["PATH", "PATHEXT", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "TEMP", "TMP", "TMPDIR", "HOME", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "PROGRAMFILES", "PROGRAMFILES(X86)", "PROGRAMDATA", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "LANG", "CARGO_HOME", "RUSTUP_HOME", "OS"];
+
+/// Keys passed through to an isolated check (case-insensitive, like Windows).
+pub fn isolated_env<I: IntoIterator<Item = (String, String)>>(vars: I) -> Vec<(String, String)> {
+    vars.into_iter().filter(|(k, _)| ISOLATED_ENV.iter().any(|a| a.eq_ignore_ascii_case(k))).collect()
+}
+
+pub fn run_check(root: &Path, check: &CheckCommand, timeout: Duration) -> CheckResult { run_check_with(root, check, timeout, false) }
+
+/// For checks on the scratch copy: minimal environment and offline package managers.
+/// This limits inherited secrets and accidental downloads; it is not an OS sandbox.
+pub fn run_check_isolated(root: &Path, check: &CheckCommand, timeout: Duration) -> CheckResult { run_check_with(root, check, timeout, true) }
+
+fn run_check_with(root: &Path, check: &CheckCommand, timeout: Duration, isolated: bool) -> CheckResult {
     let command = format!("{} {}", check.program, check.args.join(" "));
     let mut cmd = Command::new(&check.program);
+    if isolated {
+        cmd.env_clear().envs(isolated_env(std::env::vars()))
+            .env("npm_config_offline", "true").env("CARGO_NET_OFFLINE", "true").env("PIP_NO_INDEX", "1");
+    }
     cmd.args(&check.args).current_dir(root).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
         .env("CI", "1").env("NO_COLOR", "1").env("FORCE_COLOR", "0");
     #[cfg(windows)]
@@ -143,6 +162,12 @@ pub async fn run_project_checks(window: WebviewWindow, state: State<'_, crate::A
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn isolated_checks_get_no_secrets() {
+        let vars = [("PATH", "/bin"), ("Path", "C:/x"), ("GROQ_API_KEY", "k"), ("SUPABASE_SERVICE_ROLE_KEY", "s"), ("GITHUB_TOKEN", "t"), ("AWS_SECRET_ACCESS_KEY", "a"), ("TEMP", "/tmp")];
+        let kept: Vec<String> = isolated_env(vars.iter().map(|(k, v)| (k.to_string(), v.to_string()))).into_iter().map(|(k, _)| k).collect();
+        assert_eq!(kept, ["PATH", "Path", "TEMP"]);
+    }
     #[test]
     fn detects_checks_from_project_files() {
         let dir = tempfile::tempdir().unwrap();

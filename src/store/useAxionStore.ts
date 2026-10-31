@@ -62,6 +62,7 @@ import {
   scanBrowserFileList,
   inspectProjectMeta,
   normalizePath,
+  workspaceIdFor,
   assertInsideWorkspace,
   resolveWorkspacePath,
   readWorkspaceFileDirect,
@@ -1324,7 +1325,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
 
       const { fileContents, filesIndex } = await indexNativeFiles(nativeFiles);
 
-      const id = info.name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+      const id = workspaceIdFor(info.name, info.canonical_root);
       const activeWs: ActiveWorkspace = {
         id,
         name: info.name,
@@ -1441,8 +1442,8 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       });
 
       const meta = inspectProjectMeta(fileContents, dirHandle.name);
-      const id = dirHandle.name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
       const absolutePath = `[Browser FS] ${dirHandle.name}`;
+      const id = workspaceIdFor(dirHandle.name, absolutePath);
 
       const activeWs: ActiveWorkspace = {
         id,
@@ -1540,8 +1541,8 @@ export const useAxionStore = create<AxionState>((set, get) => ({
       });
 
       const meta = inspectProjectMeta(fileContents, folderName);
-      const id = folderName.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
       const absolutePath = `[Browser Upload] ${folderName}`;
+      const id = workspaceIdFor(folderName, absolutePath);
 
       const activeWs: ActiveWorkspace = {
         id,
@@ -1624,8 +1625,8 @@ export const useAxionStore = create<AxionState>((set, get) => ({
   },
 
   openCustomFolder: (name, path) => {
-    const id = name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
     const normPath = normalizePath(path);
+    const id = workspaceIdFor(name, normPath);
     const activeWs: ActiveWorkspace = {
       id,
       name,
@@ -1688,8 +1689,8 @@ export const useAxionStore = create<AxionState>((set, get) => ({
   },
 
   loadDirectoryFiles: (name, path, loadedFiles) => {
-    const id = name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
     const normPath = normalizePath(path);
+    const id = workspaceIdFor(name, normPath);
     const meta = inspectProjectMeta(loadedFiles, name);
 
     const filesIndex: ProjectFileEntry[] = Object.keys(loadedFiles).map((relPath) => ({
@@ -1787,7 +1788,7 @@ export const useAxionStore = create<AxionState>((set, get) => ({
 
         const { fileContents, filesIndex } = await indexNativeFiles(nativeFiles);
 
-        const id = info.name.toLowerCase().replace(/[^a-z0-9_-]/g, '-');
+        const id = workspaceIdFor(info.name, info.canonical_root);
         const activeWs: ActiveWorkspace = {
           id,
           name: info.name,
@@ -2961,7 +2962,8 @@ export const useAxionStore = create<AxionState>((set, get) => ({
           // and silently skipped when offline/disabled.
           try {
             const sharing = useProfileStore.getState().profile?.shareWithAI === true;
-            const milestone = sharing ? summarizeExchange(fullText) : '';
+            // Code Studio exchanges stay local: cloud milestones carry no project and would leak into other chats.
+            const milestone = sharing && !activeSession?.isWorkspaceBound ? summarizeExchange(fullText) : '';
             if (milestone) syncMilestone({ milestone_kind: 'summary', summary: milestone, source: 'desktop', device_label: null });
           } catch { /* sync must never break chat */ }
 

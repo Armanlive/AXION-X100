@@ -174,6 +174,7 @@ pub fn run() {
             providers::provider_configs,
             providers::provider_save,
             providers::provider_request,
+            providers::provider_cancel,
             providers::fish_audio_tts,
             providers::fish_audio_test,
             terminal::terminal_open,

@@ -21,6 +21,19 @@ it('a slow first model gets company and the faster answer wins', async () => {
   assert.deepEqual(log, ['slow@60', 'quick@45'], 'first attempt gets the longer timeout');
 });
 
+it('the losing request is cancelled once another model answers, and is not marked unhealthy', async () => {
+  let aborted = false;
+  const slow: RaceCandidate = {key: 'slow', free: true, run: (_t, signal) => new Promise((_, rej) => {
+    const timer = setTimeout(() => rej(new Error('late')), 2000);
+    signal.addEventListener('abort', () => { aborted = true; clearTimeout(timer); rej(new Error('cancelled')); });
+  })};
+  const r = await raceCandidates([slow, cand('quick', 20, 'quick answer')], fast);
+  assert.equal(r.text, 'quick answer');
+  await new Promise((res) => setTimeout(res, 0));
+  assert.equal(aborted, true, 'slow provider request was aborted');
+  assert.equal(healthOf('slow')?.failures ?? 0, 0, 'cancellation is not a provider failure');
+});
+
 it('a fast first model answers alone, no extra calls', async () => {
   const log: string[] = [];
   const r = await raceCandidates([cand('a', 5, 'A', {log}), cand('b', 5, 'B', {log})], fast);

@@ -26,11 +26,20 @@ export function githubSources(bytes:Uint8Array):Record<string,string>{
 }
 export async function importGithubProject(input:string,progress:(message:string)=>void){
  const repository=githubRepository(input);
+ const api=`https://api.github.com/repos/${repository.owner}/${repository.repo}`;
+ const failed=(status:number)=>Error(`GitHub import failed (${status}). Check access or rate limits; private projects require a local clone.`);
+ progress('📂 Resolving the latest GitHub commit…');
+ // A tree SHA is not a valid raw.githubusercontent.com ref: resolve the commit first, read its tree, download at the commit.
+ const head=await fetch(`${api}/commits/HEAD`,{signal:AbortSignal.timeout(30000),credentials:'omit'});
+ if(!head.ok)throw failed(head.status);
+ const commit=await head.json();
+ const commitSha=commit?.sha, treeSha=commit?.commit?.tree?.sha;
+ if(!/^[a-f0-9]{40,64}$/.test(commitSha) || !/^[a-f0-9]{40,64}$/.test(treeSha))throw Error('Could not resolve the repository commit. Open a local clone instead.');
  progress('📂 Loading public GitHub repository tree…');
- const response=await fetch(`https://api.github.com/repos/${repository.owner}/${repository.repo}/git/trees/HEAD?recursive=1`,{signal:AbortSignal.timeout(30000),credentials:'omit'});
- if(!response.ok)throw Error(`GitHub import failed (${response.status}). Check access or rate limits; private projects require a local clone.`);
+ const response=await fetch(`${api}/git/trees/${treeSha}?recursive=1`,{signal:AbortSignal.timeout(30000),credentials:'omit'});
+ if(!response.ok)throw failed(response.status);
  const tree=await response.json();
- if(tree.truncated || !Array.isArray(tree.tree) || !/^[a-f0-9]{40,64}$/.test(tree.sha))throw Error('Incomplete repository tree. Open a local clone instead.');
+ if(tree.truncated || !Array.isArray(tree.tree))throw Error('Incomplete repository tree. Open a local clone instead.');
  const sources=tree.tree.filter((entry:any)=>entry.type==='blob' && entry.mode!=='120000' && typeof entry.path==='string' && !entry.path.split('/').some((part:string)=>['.git','node_modules','dist','target'].includes(part)||/^\.env(?:\.|$)/i.test(part)));
  if(sources.length>1000 || sources.reduce((sum:number,e:any)=>sum+(e.size||0),0)>25_000_000)throw Error('Repository exceeds source import limits. Open a local clone instead.');
  const files:Record<string,string>=Object.create(null);
@@ -39,7 +48,7 @@ export async function importGithubProject(input:string,progress:(message:string)
   await Promise.all(sources.slice(at,at+4).map(async(entry:any)=>{
    const parts=entry.path.split('/');
    if(parts.some((p:string)=>!p||p==='.'||p==='..'||p.includes('\\')))throw Error('Unsafe repository path.');
-   const url=`https://raw.githubusercontent.com/${repository.owner}/${repository.repo}/${tree.sha}/${parts.map(encodeURIComponent).join('/')}`;
+   const url=`https://raw.githubusercontent.com/${repository.owner}/${repository.repo}/${commitSha}/${parts.map(encodeURIComponent).join('/')}`;
    const source=await fetch(url,{signal:AbortSignal.timeout(30000),credentials:'omit'});
    if(!source.ok)throw Error(`Could not load ${entry.path}. Import stopped without changing your project.`);
    const bytes=new Uint8Array(await source.arrayBuffer());
@@ -48,5 +57,5 @@ export async function importGithubProject(input:string,progress:(message:string)
   }));
  }
  if(!Object.keys(files).length)throw Error('No text source files found.');
- return {...repository,files};
+ return {...repository,commit:commitSha,files};
 }

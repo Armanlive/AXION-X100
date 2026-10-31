@@ -13,6 +13,7 @@
  */
 
 import { cloudOwnerId, getSupabase, isSupabaseConfigured } from './supabaseClient.ts';
+import { getInferenceMode, onInferenceModeChange } from '../utils/hybridMode.ts';
 
 // ---------- types ----------
 
@@ -249,6 +250,7 @@ let flushTimer: ReturnType<typeof setTimeout> | null = null;
 /** Fire-and-forget background sync: flushes the queue when online. */
 export function requestBackgroundSync(): void {
   if (!isSupabaseConfigured) return;
+  if (getInferenceMode() === 'offline') return; // offline mode keeps everything on the device; ops wait in the queue
   setStatus({ online: navigator.onLine });
   if (!navigator.onLine) return;
   if (flushTimer) clearTimeout(flushTimer);
@@ -296,6 +298,8 @@ export function forgetSync(): void {
 }
 
 // ---------- connectivity listeners ----------
+
+onInferenceModeChange(() => { if (getInferenceMode() === 'online') requestBackgroundSync(); });
 
 if (typeof window !== 'undefined') {
   window.addEventListener('online', () => {

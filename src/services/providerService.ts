@@ -124,9 +124,20 @@ export async function saveProvider(provider:string,apiKey:string,accountId:strin
  await invoke('provider_save',{provider,apiKey,accountId,remove});
 }
 
-export async function requestProvider(provider: string, model: string, system: string, contents: any[], timeoutSecs?: number): Promise<string> {
+/** Both signals in one (AbortSignal.any where available). */
+function combineSignals(a?: AbortSignal, b?: AbortSignal): AbortSignal | undefined {
+  if (!a || !b) return a ?? b;
+  if (typeof AbortSignal.any === 'function') return AbortSignal.any([a, b]);
+  const controller = new AbortController();
+  for (const s of [a, b]) { if (s.aborted) controller.abort(s.reason); else s.addEventListener('abort', () => controller.abort(s.reason), { once: true }); }
+  return controller.signal;
+}
+
+/** `cancel` stops the request (e.g. it lost a provider race) so it stops using quota. */
+export async function requestProvider(provider: string, model: string, system: string, contents: any[], timeoutSecs?: number, cancel?: AbortSignal): Promise<string> {
   assertInferenceAllowed(provider);
-  const signal = timeoutSecs ? AbortSignal.timeout(timeoutSecs * 1000) : undefined;
+  if (cancel?.aborted) throw new Error('Provider request cancelled');
+  const signal = combineSignals(timeoutSecs ? AbortSignal.timeout(timeoutSecs * 1000) : undefined, cancel);
   if (provider === 'fishaudio') {
     throw Error('Fish Audio is a speech provider, not a chat model.');
   }
@@ -174,8 +185,15 @@ export async function requestProvider(provider: string, model: string, system: s
     throw new Error('Provider requests require the AXION desktop app and its secure credential store.');
   }
   const payload = providerPayload(provider, model, system, contents);
-  const result = await invoke('provider_request', { provider, model, payload, timeoutSecs: timeoutSecs ?? null });
-  return providerText(provider, result);
+  const requestId = globalThis.crypto?.randomUUID?.() ?? `req-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const stop = () => { void invoke('provider_cancel', { requestId }).catch(() => undefined); };
+  cancel?.addEventListener('abort', stop, { once: true });
+  try {
+    const result = await invoke('provider_request', { provider, model, payload, timeoutSecs: timeoutSecs ?? null, requestId });
+    return providerText(provider, result);
+  } finally {
+    cancel?.removeEventListener('abort', stop);
+  }
 }
 
 export async function providerConfigs(): Promise<ProviderMetadata[]> {

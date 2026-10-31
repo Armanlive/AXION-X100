@@ -75,11 +75,13 @@ export const DesktopSidebar: React.FC = () => {
     return chatSessions.filter(matchesSearch);
   }, [chatSessions, chatSearchQuery]);
 
-  const threadsForProject = (wsId: string, wsName?: string) =>
+  // Match by id or by the exact folder path (keeps chats saved before path-based ids);
+  // never by folder name, which two different projects can share.
+  const threadsForProject = (wsId: string, wsPath?: string) =>
     chatSessions.filter(
       (s) =>
         isWorkspaceChat(s) &&
-        (s.workspaceId === wsId || (wsName ? s.workspaceName === wsName : false)) &&
+        (s.workspaceId === wsId || (wsPath ? s.workspacePath === wsPath : false)) &&
         matchesSearch(s)
     );
 
@@ -293,7 +295,7 @@ export const DesktopSidebar: React.FC = () => {
             workspaces.map((ws) => {
               const isOpen = openProjectId === ws.id;
               const isActive = ws.id === activeWorkspaceId;
-              const threads = threadsForProject(ws.id, ws.name);
+              const threads = threadsForProject(ws.id, ws.path);
               return (
                 <div key={ws.id} className="space-y-0.5">
                   <div

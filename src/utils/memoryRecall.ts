@@ -7,6 +7,7 @@
 import type { ChatMessage, ChatSession } from '../types/index.ts';
 import { cloudOwnerId, getSupabase, isSupabaseConfigured } from '../services/supabaseClient.ts';
 import { getPairId, sanitizeForCloud } from '../services/memorySync.ts';
+import { getInferenceMode } from './hybridMode.ts';
 
 export interface MilestoneRow {
   summary: string;
@@ -172,6 +173,7 @@ export async function fetchCloudMilestones(options: {
   const source = options.source ?? (isSupabaseConfigured ? supabaseSource : null);
   if (!source) return [];
   if (typeof navigator !== 'undefined' && navigator.onLine === false) return [];
+  if (getInferenceMode() === 'offline') return []; // offline mode: no cloud reads either
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
     const pairId = options.pairId ?? getPairId();
