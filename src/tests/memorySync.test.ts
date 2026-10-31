@@ -8,6 +8,7 @@ import {
   enqueue,
   readQueue,
   forgetSync,
+  clearPendingProfileSync,
   type QueuedOp,
   type CloudProfileRow,
   type MilestoneChunk,
@@ -85,5 +86,23 @@ describe('Offline queue', () => {
     forgetSync();
     assert.equal(readQueue().length, 0);
     assert.notEqual(getPairId(), before);
+  });
+
+  it('never writes profile fields to localStorage in plaintext', () => {
+    const profile: CloudProfileRow = {
+      device_pair_id: getPairId(), display_name: null, role: 'private-role-marker',
+      projects: 'private-project-marker', help: '', style: '', share_with_ai: true, revision: 1,
+    };
+    enqueue({ kind: 'profile_upsert', payload: profile });
+    assert.equal(readQueue().length, 1, 'still queued in memory');
+    assert.ok(![...store.values()].some((v) => v.includes('private-role-marker')));
+    clearPendingProfileSync();
+    assert.equal(readQueue().length, 0, 'locking the profile drops the unsent upsert');
+  });
+
+  it('purges plaintext profile ops left by older builds', () => {
+    store.set('axion.sync.queue.v1', JSON.stringify([{ id: '1', kind: 'profile_upsert', created_at: '', payload: { role: 'legacy-leak' } }]));
+    assert.equal(readQueue().length, 0);
+    assert.ok(!(store.get('axion.sync.queue.v1') ?? '').includes('legacy-leak'));
   });
 });

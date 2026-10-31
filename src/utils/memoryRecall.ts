@@ -5,7 +5,7 @@
  * chat. Everything recalled is formatted as untrusted data for the system prompt.
  */
 import type { ChatMessage, ChatSession } from '../types/index.ts';
-import { getSupabase, isSupabaseConfigured } from '../services/supabaseClient.ts';
+import { cloudOwnerId, getSupabase, isSupabaseConfigured } from '../services/supabaseClient.ts';
 import { getPairId, sanitizeForCloud } from '../services/memorySync.ts';
 
 export interface MilestoneRow {
@@ -140,9 +140,13 @@ export function formatRecallSection(milestones: MilestoneRow[], sessions: Sessio
 const supabaseSource: MilestoneSource = async (pairId, signal) => {
   const sb = getSupabase();
   if (!sb) return [];
+  // Owner-only RLS decides what is visible; the filters below only narrow it.
+  const ownerId = await cloudOwnerId();
+  if (!ownerId) return [];
   const { data, error } = await sb
     .from('memory_chunks')
     .select('summary,milestone_kind,created_at')
+    .eq('owner_id', ownerId)
     .eq('device_pair_id', pairId)
     .order('created_at', { ascending: false })
     .limit(CLOUD_FETCH_LIMIT)

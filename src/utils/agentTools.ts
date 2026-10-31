@@ -30,11 +30,27 @@ const text = (v: unknown, max: number) => (typeof v === 'string' && v.trim() && 
 const cleanPath = (p: string) => p.replace(/\\/g, '/').replace(/^\.\//, '');
 const safePath = (p: string) => !/^[a-z]:|^\/|(^|\/)\.\.(\/|$)/i.test(p);
 
+/**
+ * Files whose contents must never reach a model: env files, keys, credential stores and
+ * VCS internals. Enforced here, at the tool boundary, not by asking the model nicely.
+ */
+const ENV_TEMPLATE = /^\.env\.(?:example|sample|template|dist)$/i;
+export function isSensitivePath(p: string): boolean {
+  const parts = cleanPath(p).toLowerCase().split('/').filter(Boolean);
+  const name = parts[parts.length - 1] ?? '';
+  if (parts.some((s) => s === '.git' || s === '.ssh' || s === '.aws' || s === '.gnupg')) return true;
+  if (/^\.env(?:\.|$)/.test(name) && !ENV_TEMPLATE.test(name)) return true;
+  if (/\.(?:pem|key|p12|pfx|jks|keystore|dpapi)$/.test(name) || /^id_(?:rsa|dsa|ecdsa|ed25519)/.test(name)) return true;
+  if (['.npmrc', '.pypirc', '.netrc', '.git-credentials', '.htpasswd'].includes(name)) return true;
+  return /secret|credential/.test(name);
+}
+const allowedPath = (p: string) => safePath(p) && !isSensitivePath(p);
+
 export function validateResearch(value: unknown): ResearchAction | null {
   if (!value || typeof value !== 'object') return null;
   const a = value as Record<string, unknown>;
   switch (a.type) {
-    case 'read_file': { const p = text(a.path, 300); return p && safePath(cleanPath(p)) ? { type: 'read_file', path: cleanPath(p) } : null; }
+    case 'read_file': { const p = text(a.path, 300); return p && allowedPath(cleanPath(p)) ? { type: 'read_file', path: cleanPath(p) } : null; }
     case 'search_code': { const q = text(a.query, 200); return q ? { type: 'search_code', query: q } : null; }
     case 'list_files': { const p = typeof a.prefix === 'string' ? cleanPath(a.prefix.trim()) : ''; return safePath(p) ? { type: 'list_files', ...(p ? { prefix: p } : {}) } : null; }
     case 'git': {
@@ -42,7 +58,7 @@ export function validateResearch(value: unknown): ResearchAction | null {
       if (!GIT_KINDS.has(kind)) return null;
       const path = text(a.path, 300) ? cleanPath(String(a.path).trim()) : undefined;
       const rev = text(a.rev, 80) ?? undefined;
-      if (path && !safePath(path)) return null;
+      if (path && !allowedPath(path)) return null;
       if (kind === 'show' && (!path || !rev)) return null;
       return { type: 'git', kind, ...(path ? { path } : {}), ...(rev ? { rev } : {}) };
     }
@@ -64,6 +80,7 @@ export async function runResearch(a: ResearchAction, deps: ResearchDeps): Promis
   try {
     switch (a.type) {
       case 'read_file': {
+        if (!allowedPath(a.path)) return `Refused: ${a.path} may contain secrets and is never read.`;
         let content: string | undefined;
         try { content = deps.readFile ? await deps.readFile(a.path) : undefined; } catch { /* fall back to the index */ }
         content ??= deps.files[a.path];
@@ -79,6 +96,7 @@ export async function runResearch(a: ResearchAction, deps: ResearchDeps): Promis
         const q = a.query.toLowerCase();
         const hits: string[] = [];
         for (const [path, content] of Object.entries(deps.files)) {
+          if (isSensitivePath(path)) continue;
           const lines = content.split('\n');
           for (let i = 0; i < lines.length && hits.length < MAX_HITS; i++) {
             if (lines[i].toLowerCase().includes(q)) hits.push(`${path}:${i + 1}: ${lines[i].trim().slice(0, 200)}`);
@@ -93,6 +111,7 @@ export async function runResearch(a: ResearchAction, deps: ResearchDeps): Promis
       }
       case 'git': {
         if (!deps.git) return 'Git is only available in the AXION desktop app.';
+        if (a.path && !allowedPath(a.path)) return `Refused: ${a.path} may contain secrets and is never read.`;
         const out = await deps.git(a.kind, a.path, a.rev);
         return `git ${a.kind}${a.path ? ` ${a.path}` : ''}${a.rev ? ` @ ${a.rev}` : ''}:\n${out.trim() || '(no output)'}`;
       }

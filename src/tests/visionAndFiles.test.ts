@@ -37,6 +37,10 @@ it('consent: yes sends once, always remembers, no sends nothing, stale answers e
   assert.equal(parseConsentAnswer('हाँ भेजो'), 'once');
   assert.equal(parseConsentAnswer('hamesha'), 'always');
   assert.equal(parseConsentAnswer('nahi'), 'no');
+  for (const negative of ['not always', 'no, not always', 'hamesha nahi', 'never', "don't always", 'हमेशा नहीं', 'always mat karo'])
+    assert.equal(parseConsentAnswer(negative), 'no', negative);
+  assert.equal(parseConsentAnswer('haan hamesha'), 'always');
+  assert.equal(parseConsentAnswer('yes always'), 'always');
   assert.equal(parseConsentAnswer('explain the architecture of this project please'), null);
   let now = 0; const session = new VisualConsentSession(1000, () => now);
   session.ask('screen', 'screen pe kya hai');

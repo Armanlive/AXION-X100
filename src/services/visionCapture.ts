@@ -55,10 +55,13 @@ export function revokeVisualConsent(source?: VisualSource) {
 export function parseConsentAnswer(text: string): 'once' | 'always' | 'no' | null {
   const t = text.toLowerCase().replace(/[.,!?।]+/gu, ' ').trim();
   if (!t || t.split(/\s+/).length > 6) return null;
-  if (/\b(?:hamesha|always|har\s*baar|every\s*time)\b|हमेशा|हर\s*बार/u.test(t)) return 'always';
-  if (/\b(?:nahi|nahin|no|mat|cancel|rehne|chhodo|stop)\b|नहीं|मत|रहने|छोड़ो/u.test(t)) return 'no';
-  if (/\b(?:haan|han|ha|yes|yeah|ok|okay|sure|bhejo|kar\s*do|go|theek|thik)\b|हाँ|हां|ठीक|भेजो|कर\s*दो/u.test(t)) return 'once';
-  return null;
+  // Any negation wins: "not always", "no, not always", "hamesha nahi" must never grant standing consent.
+  if (/\b(?:nahi|nahin|no|not|never|don'?t|dont|mat|cancel|rehne|chhodo|stop)\b|नहीं|मत|रहने|छोड़ो|कभी/u.test(t)) return 'no';
+  const always = /\b(?:hamesha|always|har\s*baar|every\s*time)\b|हमेशा|हर\s*बार/u.test(t);
+  const once = /\b(?:haan|han|ha|yes|yeah|ok|okay|sure|bhejo|kar\s*do|go|theek|thik)\b|हाँ|हां|ठीक|भेजो|कर\s*दो/u.test(t);
+  // Standing consent only on a short, unambiguous affirmative ("always", "haan hamesha").
+  if (always) return t.split(/\s+/).length <= 3 ? 'always' : once ? 'once' : null;
+  return once ? 'once' : null;
 }
 
 /** One pending consent question; it expires so a late "haan" never sends anything. */

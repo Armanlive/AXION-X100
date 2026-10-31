@@ -23,6 +23,16 @@ it('accepts only safe read-only research requests', () => {
     assert.equal(validateResearch(bad), null, JSON.stringify(bad));
 });
 
+it('never lets the model read secret files, directly or through git', async () => {
+  for (const path of ['.env', 'config/.env.local', '.ENV.production', '.git/config', 'certs/server.pem', 'deploy/id_rsa', '.npmrc', 'aws_credentials.json', 'client_secret.json'])
+    for (const action of [{type: 'read_file', path}, {type: 'git', kind: 'show', path, rev: 'HEAD~1'}, {type: 'git', kind: 'diff', path}])
+      assert.equal(validateResearch(action), null, JSON.stringify(action));
+  assert.deepEqual(validateResearch({type: 'read_file', path: '.env.example'}), {type: 'read_file', path: '.env.example'});
+  const leaky: ResearchDeps = {files: {...files, '.env': 'API_KEY=fake-not-real'}, readFile: async () => 'API_KEY=fake-not-real', git: async () => 'API_KEY=fake-not-real'};
+  for (const action of [{type: 'read_file', path: '.env'}, {type: 'git', kind: 'show', path: '.env', rev: 'HEAD'}, {type: 'search_code', query: 'API_KEY'}] as const)
+    assert.doesNotMatch(await runResearch(action, leaky), /fake-not-real/, action.type);
+});
+
 it('reads, searches, lists and asks git', async () => {
   assert.match(await runResearch({type: 'read_file', path: 'src/App.tsx'}, deps), /FILE src\/App\.tsx \(3 lines/);
   assert.match(await runResearch({type: 'read_file', path: 'src/Missing.tsx'}, deps), /File not found/);

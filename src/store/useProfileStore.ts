@@ -1,6 +1,6 @@
 import {create} from 'zustand';
 import {decryptProfile,encryptProfile,PROFILE_KEY,type UserProfile} from '../utils/profileVault.ts';
-import {syncProfile} from '../services/memorySync.ts';
+import {syncProfile,clearPendingProfileSync} from '../services/memorySync.ts';
 const empty=():UserProfile=>({version:1,role:'',projects:'',help:'',style:'',shareWithAI:false});
 export const questions=[
  "I'm AXION, your engineering partner. I'd like to learn how you work so I can be more useful. What industry or role do you work in? You can skip any question.",
@@ -38,8 +38,8 @@ export const useProfileStore=create<ProfileState>((set,get)=>({
  save:async(passphrase)=>{if(get().busy)return;const token=++generation;set({busy:true,error:''});try{const profile={...get().draft};const cipher=await encryptProfile(profile,passphrase);if(token!==generation)return;localStorage.setItem(PROFILE_KEY,cipher);localStorage.removeItem('axion.profile.skip');set({profile,saved:true,locked:false,message:'Your encrypted profile is saved on this device. I will use it while unlocked.'});if(profile.shareWithAI){syncProfile({display_name:null,role:profile.role,projects:profile.projects,help:profile.help,style:profile.style,share_with_ai:true});}}catch(e){if(token===generation)set({error:e instanceof Error?e.message:'Profile could not be saved.'});}finally{if(token===generation)set({busy:false});}},
  unlock:async(passphrase)=>{if(get().busy)return;const token=++generation;set({busy:true,error:''});try{const profile=await decryptProfile(localStorage.getItem(PROFILE_KEY)||'',passphrase);if(token!==generation)return;set({profile,draft:profile,locked:false,stage:4,message:'Welcome back. Your preferences are ready for this session.'});}catch(e){if(token===generation)set({error:e instanceof Error?e.message:'Unlock failed.'});}finally{if(token===generation)set({busy:false});}},
  useSession:()=>{set({profile:{...get().draft},message:'Your preferences are active for this session only.'});},
- lock:()=>{generation++;set({profile:null,draft:empty(),speechMessage:questions[0],locked:get().saved,busy:false,stage:0,error:'',message:get().saved?'Unlock your encrypted profile to continue.':questions[0]});},
- forget:()=>{try{localStorage.removeItem(PROFILE_KEY);localStorage.removeItem('axion.profile.skip');generation++;set({profile:null,draft:empty(),speechMessage:questions[0],locked:false,saved:false,busy:false,stage:0,error:'',message:questions[0]});}catch{set({error:'Could not delete the saved profile. Local storage is unavailable.'});}},
+ lock:()=>{generation++;clearPendingProfileSync();set({profile:null,draft:empty(),speechMessage:questions[0],locked:get().saved,busy:false,stage:0,error:'',message:get().saved?'Unlock your encrypted profile to continue.':questions[0]});},
+ forget:()=>{clearPendingProfileSync();try{localStorage.removeItem(PROFILE_KEY);localStorage.removeItem('axion.profile.skip');generation++;set({profile:null,draft:empty(),speechMessage:questions[0],locked:false,saved:false,busy:false,stage:0,error:'',message:questions[0]});}catch{set({error:'Could not delete the saved profile. Local storage is unavailable.'});}},
  edit:()=>{generation++;set({profile:null,draft:empty(),speechMessage:questions[0],stage:0,open:true,busy:false,message:questions[0],error:''});},
  setSharing:(shareWithAI)=>set({draft:{...get().draft,shareWithAI}})
 }));

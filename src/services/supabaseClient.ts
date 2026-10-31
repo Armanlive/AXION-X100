@@ -23,10 +23,31 @@ export function getSupabase(): SupabaseClient | null {
   if (!isSupabaseConfigured) return null;
   if (!client) {
     client = createClient(URL!, ANON!, {
-      auth: { persistSession: false, autoRefreshToken: false },
+      // A persisted auth session is what the server's owner-only RLS checks against.
+      auth: { persistSession: true, autoRefreshToken: true, storageKey: 'axion.sync.auth.v1' },
       db: { schema: 'public' },
       global: { headers: { 'x-axion-client': 'axion-x100-v1' } },
     });
   }
   return client;
+}
+
+/**
+ * The signed-in user id that owns this device's cloud rows, or null. Rows are protected
+ * by owner-only RLS (supabase/migrations/0002_owner_rls.sql), so nothing is read or
+ * written without a session. With `create`, signs in anonymously when no session exists
+ * (requires "Anonymous sign-ins" enabled in the Supabase project).
+ */
+export async function cloudOwnerId(create = false): Promise<string | null> {
+  const sb = getSupabase();
+  if (!sb) return null;
+  try {
+    const { data } = await sb.auth.getSession();
+    if (data.session?.user?.id) return data.session.user.id;
+    if (!create) return null;
+    const { data: signedIn, error } = await sb.auth.signInAnonymously();
+    return error ? null : signedIn.user?.id ?? null;
+  } catch {
+    return null;
+  }
 }

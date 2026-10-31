@@ -12,7 +12,7 @@
  * flush in order as soon as connectivity returns.
  */
 
-import { getSupabase, isSupabaseConfigured } from './supabaseClient.ts';
+import { cloudOwnerId, getSupabase, isSupabaseConfigured } from './supabaseClient.ts';
 
 // ---------- types ----------
 
@@ -135,12 +135,27 @@ function bumpSentToday(): void {
 
 // ---------- queue ----------
 
+// Profile fields are encrypted at rest, so a pending profile upsert lives in memory only:
+// it is never written to localStorage in plaintext and vanishes on lock, forget or restart.
+let pendingProfile: QueuedOp | null = null;
+
 export function readQueue(): QueuedOp[] {
-  return readJSON<QueuedOp[]>(QUEUE_KEY, []);
+  const stored = readJSON<QueuedOp[]>(QUEUE_KEY, []);
+  const milestones = stored.filter((op) => op?.kind === 'milestone_insert');
+  if (milestones.length !== stored.length) writeJSON(QUEUE_KEY, milestones); // purge plaintext profiles left by older builds
+  return pendingProfile ? [...milestones, pendingProfile] : milestones;
 }
 
 function writeQueue(ops: QueuedOp[]): void {
-  writeJSON(QUEUE_KEY, ops.slice(-MAX_QUEUE));
+  const kept = ops.slice(-MAX_QUEUE);
+  pendingProfile = kept.filter((op) => op.kind === 'profile_upsert').pop() ?? null;
+  writeJSON(QUEUE_KEY, kept.filter((op) => op.kind === 'milestone_insert'));
+}
+
+/** Drops any unsent profile upsert (profile locked or forgotten). */
+export function clearPendingProfileSync(): void {
+  pendingProfile = null;
+  setStatus({});
 }
 
 export function enqueue(op: Omit<QueuedOp, 'id' | 'created_at'>): void {
@@ -187,7 +202,9 @@ export function setSyncErrorHandler(fn: (err: unknown) => void): void {
 async function pushProfile(row: CloudProfileRow): Promise<void> {
   const sb = getSupabase();
   if (!sb) throw new Error('supabase-unconfigured');
-  const { error } = await sb.from('profiles').upsert(row, { onConflict: 'device_pair_id' });
+  const owner_id = await cloudOwnerId(true);
+  if (!owner_id) throw new Error('supabase-unauthenticated');
+  const { error } = await sb.from('profiles').upsert({ ...row, owner_id }, { onConflict: 'owner_id,device_pair_id' });
   if (error) throw error;
 }
 
@@ -197,7 +214,9 @@ async function pushMilestone(chunk: MilestoneChunk): Promise<void> {
   if (sentToday() >= MILESTONES_PER_DAY) {
     throw new RateLimitError('milestone daily cap reached locally');
   }
-  const { error } = await sb.from('memory_chunks').insert(chunk);
+  const owner_id = await cloudOwnerId(true);
+  if (!owner_id) throw new Error('supabase-unauthenticated');
+  const { error } = await sb.from('memory_chunks').insert({ ...chunk, owner_id });
   if (error) throw error;
   bumpSentToday();
 }
@@ -265,11 +284,14 @@ export function syncMilestone(chunk: Omit<MilestoneChunk, 'device_pair_id'>): vo
 
 /** Rotate the pairing id and clear queued cloud ops (device un-pairing). */
 export function forgetSync(): void {
+  pendingProfile = null;
   try {
     localStorage.removeItem(QUEUE_KEY);
     localStorage.removeItem(PAIR_KEY);
     localStorage.removeItem(SENT_TALLY_KEY);
   } catch { /* no-op */ }
+  // Un-pairing also drops the cloud identity, so old rows stay with the old owner.
+  void getSupabase()?.auth.signOut().catch(() => undefined);
   setStatus({ queue_depth: 0 });
 }
 
