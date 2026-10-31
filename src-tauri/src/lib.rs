@@ -10,6 +10,7 @@ mod checks;
 mod shadow;
 mod audit;
 mod screen;
+mod computer;
 pub use axion_core::workspace;
 
 use axion_core::workspace::{NativeFileEntry, NativeFileMetadata, WorkspaceInfo, WorkspaceManager};
@@ -159,6 +160,9 @@ pub fn run() {
             desktop::open_installed_app,
             desktop::drive_report,
             desktop::create_desktop_folder,
+            computer::list_open_windows,
+            computer::write_user_file,
+            computer::run_shell_command,
             checks::run_project_checks,
             shadow::shadow_checks,
             audit::project_inventory,

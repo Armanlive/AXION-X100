@@ -27,8 +27,8 @@ fn valid_desktop_folder_name(name: &str) -> bool {
         && !(stem.len() == 4 && (stem.starts_with("COM") || stem.starts_with("LPT")))
 }
 
-/// One empty child of the OS Desktop, with native confirmation. No arbitrary paths,
-/// parent creation, replacement, shell execution or model-granted authority.
+/// One empty child of the OS Desktop. No arbitrary paths, parent creation, replacement
+/// or shell execution.
 #[tauri::command]
 pub async fn create_desktop_folder(window: WebviewWindow, name: String) -> Result<String, String> {
     crate::terminal::trusted(&window)?;
@@ -36,12 +36,7 @@ pub async fn create_desktop_folder(window: WebviewWindow, name: String) -> Resul
     let desktop = window.app_handle().path().desktop_dir().map_err(|e| e.to_string())?
         .canonicalize().map_err(|e| e.to_string())?;
     let target = desktop.join(&name);
-    let description = format!("Create this empty folder?\n\n{}\n\nExisting files and folders will not be replaced.", target.display());
-    let approved = tauri::async_runtime::spawn_blocking(move || rfd::MessageDialog::new()
-        .set_title("AXION — Create Desktop folder").set_description(description)
-        .set_buttons(rfd::MessageButtons::OkCancel).show()).await.map_err(|e| e.to_string())?;
-    if approved != rfd::MessageDialogResult::Ok { return Err("Cancelled. Nothing was created.".into()); }
-    crate::terminal::trusted(&window)?;
+    // A new empty folder replaces nothing (create_dir fails if it exists), so no approval stop.
     if desktop.canonicalize().map_err(|e| e.to_string())? != desktop { return Err("Desktop location changed. Try again.".into()); }
     std::fs::create_dir(&target).map_err(|e| format!("Could not create folder (nothing replaced): {e}"))?;
     Ok(target.to_string_lossy().into_owned())
