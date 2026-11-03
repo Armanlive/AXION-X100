@@ -75,29 +75,33 @@ Unlike traditional browser-based AI assistants that lack local filesystem agency
 ## 4. Getting Started
 
 ### Prerequisites
-- Windows 10 / 11 (64-bit)
-- Node.js (v18+)
-- Rust & Tauri Prerequisites (for native build)
+- Windows 10 / 11 (64-bit) with WebView2 (preinstalled on current Windows)
+- Git and Node.js 22 LTS (v20+)
+- Visual Studio Build Tools with **Desktop development with C++**
+- Rust stable via [rustup](https://rustup.rs)
 
 ### Quickstart (Development Mode)
 ```bash
 # 1. Clone repository
-git clone https://github.com/your-org/AXION-X100.git
+git clone https://github.com/Armanlive/AXION-X100.git
 cd AXION-X100
 
-# 2. Install dependencies
+# 2. Install dependencies (includes the Tauri CLI)
 npm install
 
-# 3. Launch Development Server
-npm run dev
-
-# 4. Launch Desktop App via Tauri
-npm run tauri dev
+# 3. Launch the desktop app (starts the Vite dev server itself; do not run `npm run dev` separately)
+npx @tauri-apps/cli@2 dev
 ```
+
+`npm run tauri dev` is equivalent once dependencies are installed. Cloud memory sync is optional: copy `.env.example` to `.env` and set `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`.
 
 ### Production Build
 ```bash
+# Frontend bundle only
 npm run build
+
+# Native desktop app (runs the frontend build first)
+npx @tauri-apps/cli@2 build
 ```
 
 ---
