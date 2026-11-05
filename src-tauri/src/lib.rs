@@ -172,6 +172,7 @@ pub fn run() {
             integrations::integration_connect,
             integrations::integration_disconnect,
             integrations::integration_request,
+            integrations::gmail_unread_alerts,
             providers::transcribe_audio,
             providers::open_provider_dashboard,
             providers::provider_catalog,

@@ -1,4 +1,4 @@
-use crate::integration_client::{Connection,ResultData,execute,summarize};
+use crate::integration_client::{Connection,ResultData,MailAlert,execute,gmail_unread,summarize};
 // Native-only integration vault. Tokens never return to the renderer or the model.
 use std::{collections::BTreeMap,io::Write,sync::Mutex};
 use tauri::{Manager,WebviewWindow};
@@ -51,4 +51,11 @@ pub async fn integration_request(window:WebviewWindow,service:String,operation:S
  crate::terminal::trusted(&window)?;
  let result=execute(&connection,&operation,&target,&title,&content).await?;
  Ok(summarize(&service,&operation,result))
+}
+/// Unread inbox mail (sender, subject, importance) for proactive voice alerts. Read-only; the token stays native.
+#[tauri::command]
+pub async fn gmail_unread_alerts(window:WebviewWindow)->Result<Vec<MailAlert>,String>{
+ crate::terminal::trusted(&window)?;
+ let connection={let _lock=LOCK.lock().map_err(|_|"Vault busy")?;load(&window)?.get("gmail").cloned().ok_or("Connect Gmail in Plugins first")?};
+ gmail_unread(&connection.token).await
 }

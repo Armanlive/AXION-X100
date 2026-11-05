@@ -2,6 +2,7 @@ import { LiveKitSettings } from './LiveKitSettings';
 import { GeminiVoiceOptions } from './voice/GeminiVoiceOptions';
 import { globalVoiceEngine } from '../utils/voiceEngine';
 import React, { useState, useEffect } from 'react';
+import { ProactiveAlertsSettings } from './voice/ProactiveAlertsSettings';
 import { useAxionStore } from '../store/useAxionStore';
 import { getFishAudioKey, saveFishAudioKey, FISH_AUDIO_MODELS, testFishAudioConnection } from '../services/fishAudioService';
 import { X, Volume2, Mic, Globe, Gauge, Key, Radio, Sparkles, Check, RefreshCw } from 'lucide-react';
@@ -361,6 +362,8 @@ export const VoiceSettingsModal: React.FC<VoiceSettingsModalProps> = ({ onClose 
               />
             </button>
           </div>
+
+          <ProactiveAlertsSettings />
         </div>
 
         {/* Modal Footer */}

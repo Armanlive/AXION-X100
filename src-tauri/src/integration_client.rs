@@ -40,5 +40,41 @@ pub fn summarize(service:&str,operation:&str,value:Value)->ResultData{
  ResultData{summary:format!("{} {} succeeded.",service,if operation=="verify"{"authentication"}else if operation=="write"{"creation"}else{"read"}),items}
 }
 
+/// Unread inbox mail for proactive alerts: sender, subject and Gmail's IMPORTANT label only.
+#[derive(Serialize,Debug,PartialEq)]
+#[serde(rename_all="camelCase")]
+pub struct MailAlert {pub id:String,pub from:String,pub subject:String,pub important:bool,pub received_ms:i64}
+async fn gmail_json(client:&reqwest::Client,token:&str,url:&str)->Result<Value,String>{
+ let response=client.get(url).bearer_auth(token).header("User-Agent","AXION-X100/1.0").send().await.map_err(|_|"Gmail check failed. Check network access.")?;
+ if !response.status().is_success(){return Err(format!("Gmail returned HTTP {}. Reconnect Gmail in Plugins.",response.status().as_u16()));}
+ let bytes=response.bytes().await.map_err(|_|"Incomplete Gmail response")?;
+ if bytes.len()>1_000_000{return Err("Gmail response exceeds limit".into());}
+ serde_json::from_slice(&bytes).map_err(|_|"Gmail returned an unreadable response".into())
+}
+/// Parses one `format=metadata` message; None when it is malformed.
+pub fn mail_alert(value:&Value)->Option<MailAlert>{
+ let id=value["id"].as_str().filter(|id|!id.is_empty()&&id.len()<=64&&id.chars().all(|c|c.is_ascii_alphanumeric()))?;
+ let header=|name:&str|value["payload"]["headers"].as_array().and_then(|h|h.iter().find(|x|x["name"].as_str().is_some_and(|n|n.eq_ignore_ascii_case(name)))).and_then(|x|x["value"].as_str()).unwrap_or("").chars().filter(|c|!c.is_control()).take(200).collect::<String>();
+ let important=value["labelIds"].as_array().is_some_and(|l|l.iter().any(|x|x=="IMPORTANT"));
+ let received_ms=value["internalDate"].as_str().and_then(|d|d.parse().ok()).unwrap_or(0);
+ Some(MailAlert{id:id.into(),from:header("From"),subject:header("Subject"),important,received_ms})
+}
+pub async fn gmail_unread(token:&str)->Result<Vec<MailAlert>,String>{
+ let client=reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(Duration::from_secs(20)).build().map_err(|_|"Cannot initialize Gmail client")?;
+ let list=gmail_json(&client,token,"https://gmail.googleapis.com/gmail/v1/users/me/messages?q=is%3Aunread%20in%3Ainbox%20newer_than%3A1d&maxResults=10").await?;
+ let mut alerts=Vec::new();
+ for id in list["messages"].as_array().into_iter().flatten().filter_map(|m|m["id"].as_str()).take(10){
+  if !id.chars().all(|c|c.is_ascii_alphanumeric())||id.len()>64{continue;}
+  let url=format!("https://gmail.googleapis.com/gmail/v1/users/me/messages/{id}?format=metadata&metadataHeaders=From&metadataHeaders=Subject");
+  if let Some(alert)=mail_alert(&gmail_json(&client,token,&url).await?){alerts.push(alert);}
+ }
+ Ok(alerts)
+}
+
 #[cfg(test)]mod tests{use super::*;#[test]fn invalid_identity_does_not_count_as_authenticated(){assert!(!valid_identity("github",&serde_json::json!({"message":"not authorized"})));assert!(valid_identity("supabase",&serde_json::json!([])));}
+#[test]fn mail_alerts_keep_only_sender_subject_and_importance(){
+ let msg=serde_json::json!({"id":"18c2abc","labelIds":["UNREAD","IMPORTANT"],"internalDate":"1700000000000","snippet":"secret body","payload":{"headers":[{"name":"From","value":"Boss <boss@example.com>"},{"name":"subject","value":"Need\r\nthis today"}]}});
+ assert_eq!(mail_alert(&msg),Some(MailAlert{id:"18c2abc".into(),from:"Boss <boss@example.com>".into(),subject:"Needthis today".into(),important:true,received_ms:1700000000000}));
+ assert!(!serde_json::to_string(&mail_alert(&msg)).unwrap().contains("secret body"));
+ assert_eq!(mail_alert(&serde_json::json!({"id":"../x"})),None);}
 #[test]fn summaries_never_return_raw_api_bodies(){let result=summarize("github","read",serde_json::json!([{ "id":1,"name":"project","token":"must-not-be-exposed" }]));let text=serde_json::to_string(&result).unwrap();assert!(text.contains("project"));assert!(!text.contains("must-not-be-exposed"));}}
