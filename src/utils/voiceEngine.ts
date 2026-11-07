@@ -3,6 +3,7 @@ import {invoke,isTauri} from '@tauri-apps/api/core';
 import {RecordedRecognition} from './recordedRecognition.ts';
 import {LiveKitRecognition,liveKitConfigured} from './liveKitVoice.ts';
 import { prepareTextForSpeech } from './voiceNormalizer.ts';
+import { loadLanguagePreference, preferenceLocale } from './languagePreference.ts';
 import { DoubleClapDetector, parseWakePhrase, selectDeviceVoice, wakeAcknowledgement, isNoiseTranscript, detectSleepCommand, sleepAcknowledgement } from './voiceActivation.ts';
 import { synthesizeFishAudio, getFishAudioKey, isFishAudioConfigured, getFishAudioModel } from '../services/fishAudioService.ts';
 import { synthesizeGeminiSpeech } from '../services/geminiTtsService.ts';
@@ -385,7 +386,9 @@ export class VoiceEngine {
     this.outputEnabled=outputEnabled;
     this.publish({mode:settings.listeningMode});
     this.recognitionAdapter.setMode(settings.listeningMode);
-    this.recognitionAdapter.setLanguage(recognitionLocale(settings.language),settings.language==='auto');
+    // "Auto" follows the language chosen in Meet AXION (e.g. Kannada → kn-IN) before the computer's language.
+    const chosen=settings.language==='auto'?loadLanguagePreference():null;
+    this.recognitionAdapter.setLanguage(chosen?preferenceLocale(chosen):recognitionLocale(settings.language),settings.language==='auto'&&!chosen);
     this.synthesisAdapter.setVoiceSettings(
       settings.voiceName,
       settings.speed,

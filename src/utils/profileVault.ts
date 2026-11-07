@@ -1,4 +1,4 @@
-export interface UserProfile {version:1; role:string; projects:string; help:string; style:string; shareWithAI:boolean}
+export interface UserProfile {version:1; name?:string; role:string; projects:string; help:string; style:string; shareWithAI:boolean}
 export const PROFILE_KEY='axion.profile.encrypted.v1';
 const encoder=new TextEncoder();const aad=encoder.encode('AXION profile vault v1');
 function base64(bytes:Uint8Array){return btoa(String.fromCharCode(...bytes));}
@@ -6,7 +6,8 @@ function bytes(value:string){return Uint8Array.from(atob(value),c=>c.charCodeAt(
 export function validateProfile(value:unknown):UserProfile {
  const p=value as UserProfile;
  if(!p||p.version!==1||typeof p.shareWithAI!=='boolean'||['role','projects','help','style'].some(k=>typeof p[k as keyof UserProfile]!=='string'||String(p[k as keyof UserProfile]).length>1200))throw Error('Invalid profile');
- return {version:1,role:p.role,projects:p.projects,help:p.help,style:p.style,shareWithAI:p.shareWithAI};
+ if(p.name!==undefined&&(typeof p.name!=='string'||p.name.length>100))throw Error('Invalid profile');
+ return {version:1,...(p.name?{name:p.name}:{}),role:p.role,projects:p.projects,help:p.help,style:p.style,shareWithAI:p.shareWithAI};
 }
 async function keyFor(passphrase:string,salt:Uint8Array<ArrayBuffer>){
  if(!crypto.subtle)throw Error('Encrypted storage requires a secure browser context.');

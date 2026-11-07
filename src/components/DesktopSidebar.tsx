@@ -414,6 +414,7 @@ export const DesktopSidebar: React.FC = () => {
           </button>
 
           <button
+            data-tour="cloud-brain"
             onClick={() => {
               setSpeechMode('chat');
               setCurrentTab('cloud_brain');

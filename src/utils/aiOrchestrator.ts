@@ -11,6 +11,7 @@ import {profileContext,useProfileStore} from '../store/useProfileStore';
 import {buildRecallSection} from './memoryRecall';
 import {DESKTOP_ACTION_RULES,type DesktopDeps} from './desktopActions';
 import {runActionLoop} from './actionLoop';
+import {languageRule} from './languagePreference';
 import {parseCodeEdits,diffsBetween,CODE_EDIT_RULES} from './codeEdits';
 import {evolve,describeEvolution} from '../services/selfEvolutionService';
 import {runShadowChecks,runProjectChecks} from './projectChecks';
@@ -380,7 +381,7 @@ CONVERSATION & TONE RULES:
 - UNDERSTAND WHAT THE USER MEANS, NOT JUST WHAT WAS TYPED: ${context.isVoice?'this message was transcribed from speech, so expect misheard words, wrong word boundaries and words written in the wrong script (e.g. an English tech term spelled phonetically, or "Exxon"/"Action" for AXION).':'they may type fast, so expect typos, missing letters and mixed spellings.'} Silently work out the most likely intended words from context (the conversation, the project's files and names, common tech terms) and answer that. Never point out or correct their spelling or pronunciation. Only ask a short clarifying question when two meanings are genuinely plausible and the wrong guess would matter (e.g. which file to change or delete).
 - Respond naturally to the actual message, greetings, questions, ideas, and follow-ups.
 - Never force casual conversation into an engineering template or regurgitate raw capability bullet lists.
-- LANGUAGE: reply in the language the user is using right now, whatever it is (English, Hindi, Spanish, Arabic, a mix like Hinglish or Spanglish...). If they switch languages, switch with them. Use the script they write in; for a mix written in Latin letters, answer in Latin letters too.
+- ${languageRule()}LANGUAGE: reply in the language the user is using right now, whatever it is (English, Hindi, Spanish, Arabic, a mix like Hinglish or Spanglish...). If they switch languages, switch with them. Use the script they write in; for a mix written in Latin letters, answer in Latin letters too.
 - Output format: Return ONLY valid JSON with keys "text" (visible message) and "speechText" (the version read aloud by TTS).
   * "speechText" says the same thing as "text", in the same language, written the way a text-to-speech voice for that language pronounces best (its native script; e.g. Hindi in Devanagari even when "text" is in Latin letters).
   * For reports, audits, reviews, plans or code, "text" holds the COMPLETE deliverable in Markdown (newlines escaped as \\n inside the JSON string), and "speechText" is a 1–2 sentence spoken summary of it.

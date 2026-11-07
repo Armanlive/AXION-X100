@@ -4,7 +4,9 @@ import {PerceptionPanel} from './components/PerceptionPanel';
 import {VisionModule} from './components/VisionModule';
 import {BackgroundWake} from './components/voice/BackgroundWake';
 import {ProfileOnboarding} from './components/ProfileOnboarding';
-import {CloudBrainWelcome} from './components/CloudBrainWelcome';
+import {FirstRunTour} from './components/FirstRunTour';
+import {MeetAxion} from './components/MeetAxion';
+import {useOnboardingStore} from './store/useOnboardingStore';
 import React, { useState, useEffect } from 'react';
 import { useAxionStore } from './store/useAxionStore';
 import { DesktopShell } from './components/DesktopShell';
@@ -42,6 +44,8 @@ export default function App() {
   useEffect(()=>{void useAxionStore.getState().refreshProviders().catch(error=>useAxionStore.setState({scanStatusMessage:`Provider vault: ${String(error)}`})).finally(()=>setProvidersChecked(true));},[]);
   useEffect(() => { let mounted = true; void initializeWorkspace().finally(() => { if (mounted) setWorkspaceReady(true); }); return () => { mounted = false; }; }, []);
   const { activeDiffModal, closeDiffModal, speechMode } = useAxionStore();
+  // Meet AXION owns the microphone while it runs.
+  const meetOpen = useOnboardingStore((s) => s.meetOpen);
 
   if (!workspaceReady) return <BootSequence/>;
 
@@ -51,12 +55,13 @@ export default function App() {
       {/* Dedicated Shell: Mobile (<1024px) or Desktop (>=1024px) */}
       {isMobile ? <MobileShell /> : <DesktopShell />}
 
-      <CloudBrainWelcome checked={providersChecked && !bootVisible} />
+      <FirstRunTour checked={providersChecked && !bootVisible} />
+      <MeetAxion />
       <ProfileOnboarding />
       <PerceptionPanel />
       {!isMobile && <VisionModule />}
       {/* The Voice screen owns the mic itself; elsewhere AXION sleeps until called by name. */}
-      {!isMobile && speechMode !== 'speech' && <BackgroundWake />}
+      {!isMobile && speechMode !== 'speech' && !meetOpen && <BackgroundWake />}
       {/* Global Diff Inspection Modal */}
       {activeDiffModal && (
         <div className="fixed inset-0 z-50 bg-black/85 backdrop-blur-md flex items-center justify-center p-4">

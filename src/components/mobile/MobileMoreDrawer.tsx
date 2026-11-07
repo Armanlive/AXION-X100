@@ -122,6 +122,7 @@ export const MobileMoreDrawer: React.FC<MobileMoreDrawerProps> = ({ isOpen, onCl
             </button>
 
             <button
+              data-tour="cloud-brain"
               onClick={() => handleSelectTab('cloud_brain')}
               className="w-full min-h-[44px] flex items-center gap-3 px-3 py-2.5 rounded-xl bg-[#050508]/60 border border-cyan-500/20 hover:border-cyan-400/40 hover:bg-[#0c1428] text-xs text-cyan-100 font-medium transition"
             >

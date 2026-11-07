@@ -240,6 +240,7 @@ export const Sidebar: React.FC = () => {
 
           {/* Cloud Brain */}
           <button
+            data-tour="cloud-brain"
             onClick={() => setCurrentTab('cloud_brain')}
             className={`w-full flex items-center rounded-lg text-xs transition ${
               isSidebarCollapsed ? 'justify-center p-2' : 'justify-between px-2.5 py-1.5'

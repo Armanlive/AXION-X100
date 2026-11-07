@@ -1,7 +1,7 @@
 import {create} from 'zustand';
 import {decryptProfile,encryptProfile,PROFILE_KEY,type UserProfile} from '../utils/profileVault.ts';
 import {syncProfile,clearPendingProfileSync} from '../services/memorySync.ts';
-const empty=():UserProfile=>({version:1,role:'',projects:'',help:'',style:'',shareWithAI:false});
+const empty=():UserProfile=>({version:1,name:'',role:'',projects:'',help:'',style:'',shareWithAI:false});
 export const questions=[
  "I'm AXION, your engineering partner. I'd like to learn how you work so I can be more useful. What industry or role do you work in? You can skip any question.",
  'Thanks. What are you building or working on right now?',
@@ -13,13 +13,15 @@ const fields=['role','projects','help','style'] as const;
 interface ProfileState {
  initialized:boolean;open:boolean;stage:number;speechMessage:string;profile:UserProfile|null;draft:UserProfile;locked:boolean;busy:boolean;error:string;message:string;saved:boolean;
  initialize:()=>void;show:()=>void;pause:()=>void;answer:(text:string)=>string|null;
- save:(passphrase:string)=>Promise<void>;unlock:(passphrase:string)=>Promise<void>;useSession:()=>void;lock:()=>void;forget:()=>void;edit:()=>void;setSharing:(value:boolean)=>void;
+ applyInterview:(answers:Pick<UserProfile,'name'|'role'|'projects'|'help'|'style'>)=>void;save:(passphrase:string)=>Promise<void>;unlock:(passphrase:string)=>Promise<void>;useSession:()=>void;lock:()=>void;forget:()=>void;edit:()=>void;setSharing:(value:boolean)=>void;
 }
 let generation=0;
 export const useProfileStore=create<ProfileState>((set,get)=>({
  initialized:false,open:false,stage:0,speechMessage:questions[0],profile:null,draft:empty(),locked:false,busy:false,error:'',message:questions[0],saved:false,
- initialize:()=>{if(get().initialized)return;try{const saved=!!localStorage.getItem(PROFILE_KEY);const skipped=localStorage.getItem('axion.profile.skip')==='1';set({initialized:true,saved,locked:saved,open:!skipped,message:saved?'Welcome back. Unlock your local profile to restore your preferences.':questions[0]});}catch{set({initialized:true,open:true,error:'Local storage is unavailable. You can still use a session-only profile.'});}},
+ initialize:()=>{if(get().initialized)return;try{const saved=!!localStorage.getItem(PROFILE_KEY);const skipped=localStorage.getItem('axion.profile.skip')==='1';set({initialized:true,saved,locked:saved,open:saved&&!skipped,message:saved?'Welcome back. Unlock your local profile to restore your preferences.':questions[0]});}catch{set({initialized:true,open:true,error:'Local storage is unavailable. You can still use a session-only profile.'});}},
  show:()=>{get().initialize();set({open:true});},
+ // Spoken answers from "Meet AXION": go straight to the review step, ready to save.
+ applyInterview:(answers)=>{get().initialize();if(get().locked||get().profile)return;set({draft:{...get().draft,...answers},stage:4,open:true,error:'',message:questions[4],speechMessage:questions[4]});},
  pause:()=>{set({open:false});try{localStorage.setItem('axion.profile.skip','1');}catch{}},
  answer:(text)=>{
   get().initialize();const s=get();
